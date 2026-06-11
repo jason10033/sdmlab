@@ -13,11 +13,11 @@ export default function Projects() {
   const [title, setTitle] = useState('');
   const [decision, setDecision] = useState('');
   const [error, setError] = useState('');
-  const [aiConfigured, setAiConfigured] = useState(true);
+  const [health, setHealth] = useState({ aiConfigured: true, mockMode: false });
 
   async function load() {
     setProjects(await api.getProjects());
-    try { setAiConfigured((await api.health()).aiConfigured); } catch { /* ignore */ }
+    try { setHealth(await api.health()); } catch { /* ignore */ }
   }
   useEffect(() => { load(); }, []);
 
@@ -37,10 +37,16 @@ export default function Projects() {
         <button className="btn" onClick={() => setShowNew(!showNew)}>New project</button>
       </div>
 
-      {!aiConfigured && (
+      {!health.aiConfigured && health.mockMode && (
+        <div className="notice">
+          Fallback mode: no AI key is set, so the pipeline runs with real PubMed and Reddit data but
+          clearly-labeled placeholder content where the AI would write. Add ANTHROPIC_API_KEY to server/.env to go live.
+        </div>
+      )}
+      {!health.aiConfigured && !health.mockMode && (
         <div className="notice">
           The Anthropic API key is not configured on the server, so AI steps (extraction, evidence scan, generation, surveillance)
-          will not run. Set ANTHROPIC_API_KEY in the server environment.
+          will not run. Set ANTHROPIC_API_KEY in server/.env.
         </div>
       )}
 

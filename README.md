@@ -28,9 +28,12 @@ First login: `admin@sdmlab.local` / `changeme` (override with SEED_ADMIN_EMAIL /
 
 Environment variables (server):
 
+Server environment variables can live in `server/.env` (see `server/.env.example`); real environment variables always win.
+
 | Variable | Purpose |
 |---|---|
-| `ANTHROPIC_API_KEY` | Required for all AI features (extraction, evidence scan, generation, surveillance triage) |
+| `ANTHROPIC_API_KEY` | Required for live AI features (extraction, evidence scan, generation, surveillance triage) |
+| `MOCK_AI` | `1` enables fallback mode when no key is set: real PubMed/Reddit data, clearly-labeled placeholder content where the AI would write. Ignored once a key exists. |
 | `ANTHROPIC_MODEL` | Optional model override (default `claude-opus-4-8`) |
 | `DATA_DIR` | Where sdmlab.db and uploads live (default: server/) |
 | `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | First admin account |

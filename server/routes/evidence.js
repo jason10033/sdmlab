@@ -96,7 +96,7 @@ router.post('/:id/reddit/discover', getProject, async (req, res) => {
     logRevision(req.project.id, 'evidence', 'reddit_discovery', `${picks.length} communities evaluated`, req.user.id);
     res.json({ picks });
   } catch (err) {
-    res.status(err.code === 'NO_API_KEY' ? 503 : 500).json({ error: err.message });
+    res.status(err.code === 'NO_API_KEY' || err.code === 'NO_REDDIT_CREDS' ? 503 : 500).json({ error: err.message });
   }
 });
 

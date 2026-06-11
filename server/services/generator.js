@@ -277,7 +277,51 @@ const TRIAGE_SCHEMA = {
 // ---------------------------------------------------------------------------
 const SYSTEM = 'You are SDMLab, an expert assistant that helps clinicians build IPDAS-compliant shared decision-making tools. You are rigorous about evidence, balanced presentation of options, and plain language at a 6th-8th grade reading level. You never invent citations.';
 
+// Fallback (mock) mode: lets the whole pipeline run without an API key, with
+// real PubMed/Reddit data and clearly-labeled placeholder content where the AI
+// would be. A real key always wins.
+function isMock() {
+  return process.env.MOCK_AI === '1' && !process.env.ANTHROPIC_API_KEY;
+}
+
+function chunk(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+// Crude topic/option extraction used only by fallback mode.
+function mockTopic(decision) {
+  return decision.split(/[.:]/)[0].trim().slice(0, 80);
+}
+
+const STOPWORDS = new Set(['choosing', 'choice', 'option', 'options', 'starting', 'start', 'deciding', 'decision', 'about', 'between', 'whether', 'with', 'the', 'and', 'for', 'not', 'now', 'a', 'an', 'or', 'of', 'to']);
+function mockKeywords(decision) {
+  const words = mockTopic(decision).toLowerCase().replace(/[^a-z0-9\s-]/g, '').split(/\s+/)
+    .filter((w) => w.length > 1 && !STOPWORDS.has(w));
+  return words.slice(0, 4).join(' ');
+}
+
+function mockOptions(decision) {
+  const after = decision.includes(':') ? decision.slice(decision.indexOf(':') + 1) : decision;
+  const parts = after.split(/,| or |;/).map((s) => s.trim().replace(/\.$/, '')).filter((s) => s.length > 2 && s.length < 80);
+  const names = parts.slice(0, 5);
+  return names.length >= 2 ? names : ['Option A', 'Option B'];
+}
+
 async function buildPubmedQueries(decision) {
+  if (isMock()) {
+    const topic = mockTopic(decision);
+    return {
+      queries: [
+        { purpose: 'values_preferences', query: `(${topic}) AND (patient preference OR values OR qualitative OR acceptability)` },
+        { purpose: 'risks_benefits', query: `(${topic}) AND (adverse effects OR safety OR harms OR benefits)` },
+        { purpose: 'effectiveness', query: `(${topic}) AND (effectiveness OR efficacy OR comparative)` },
+        { purpose: 'guidelines', query: `(${topic}) AND (guideline OR recommendation)` },
+      ],
+      surveillanceQuery: mockKeywords(decision),
+    };
+  }
   return askJson({
     system: SYSTEM,
     prompt: `A clinical team is building a shared decision-making tool for this decision:\n\n"${decision}"\n\nWrite PubMed search queries (using standard PubMed syntax, MeSH terms where helpful) to find:\n1. Patient values and preferences research for this decision\n2. Risks and benefits / harms evidence\n3. Effectiveness and comparative effectiveness evidence\n4. Current guidelines\n\nAlso write one broad "surveillanceQuery" suitable for a weekly automated scan for new developments on this topic. Keep each query focused; do not over-restrict with too many ANDs.`,
@@ -287,16 +331,43 @@ async function buildPubmedQueries(decision) {
 }
 
 async function tagEvidence(decision, articles) {
-  const list = articles.map((a) => `PMID ${a.pmid}\nTitle: ${a.title}\nAbstract: ${(a.abstract || '(no abstract)').slice(0, 1800)}`).join('\n\n---\n\n');
-  return askJson({
-    system: SYSTEM,
-    prompt: `Decision being built into an SDM tool: "${decision}"\n\nScreen these PubMed abstracts. For each, decide if it is relevant to building the decision aid, tag it (values, preferences, risks, benefits, effectiveness, guidelines, other), and write a 1-2 sentence plain-language summary of what it contributes. Be inclusive at this screening stage; a human will review.\n\n${list}`,
-    schema: EVIDENCE_TAG_SCHEMA,
-    maxTokens: 16000,
-  });
+  if (isMock()) {
+    return {
+      items: articles.map((a) => ({
+        pmid: a.pmid,
+        relevant: true,
+        tags: ['other'],
+        summary: 'Fallback screening (no API key): included for manual review.',
+      })),
+    };
+  }
+  // Batch to keep each response comfortably inside output limits.
+  const results = [];
+  for (const batch of chunk(articles, 12)) {
+    const list = batch.map((a) => `PMID ${a.pmid}\nTitle: ${a.title}\nAbstract: ${(a.abstract || '(no abstract)').slice(0, 1800)}`).join('\n\n---\n\n');
+    const { items } = await askJson({
+      system: SYSTEM,
+      prompt: `Decision being built into an SDM tool: "${decision}"\n\nScreen these PubMed abstracts. For each, decide if it is relevant to building the decision aid, tag it (values, preferences, risks, benefits, effectiveness, guidelines, other), and write a 1-2 sentence plain-language summary of what it contributes. Be inclusive at this screening stage; a human will review.\n\n${list}`,
+      schema: EVIDENCE_TAG_SCHEMA,
+      maxTokens: 16000,
+    });
+    results.push(...items);
+  }
+  return { items: results };
 }
 
 async function pickSubreddits(decision, candidates) {
+  if (isMock()) {
+    const sorted = [...candidates].sort((a, b) => (b.subscribers || 0) - (a.subscribers || 0));
+    return {
+      picks: sorted.map((c, i) => ({
+        name: c.name,
+        rationale: `Fallback selection (no API key): matched the topic search, ${(c.subscribers || 0).toLocaleString()} members. Verify relevance manually.`,
+        recommended: i < 5 && (c.subscribers || 0) > 1000,
+      })),
+      searchTerms: mockTopic(decision).split(/\s+/).slice(0, 5),
+    };
+  }
   const list = candidates.map((c) => `r/${c.name} (${c.subscribers} members${c.over18 ? ', 18+' : ''}): ${c.title}. ${c.description}`).join('\n');
   return askJson({
     system: SYSTEM,
@@ -306,7 +377,62 @@ async function pickSubreddits(decision, candidates) {
   });
 }
 
+function mockGenerateTool({ decision, evidence }) {
+  const names = mockOptions(decision);
+  const citations = [
+    { id: 'M1', label: 'Team materials (uploaded intake content)', source: 'material', url: '' },
+    ...evidence.map((e) => ({
+      id: `E${e.id}`,
+      label: `${e.title} (${e.journal || 'journal'}, ${e.year || 'n.d.'})`,
+      source: 'pubmed',
+      url: e.url || '',
+    })),
+  ];
+  const PLACEHOLDER = '[FALLBACK DRAFT - no API key was set, so this is placeholder structure, not generated clinical content. Replace via Edit content or regenerate with a key.]';
+  const options = names.map((name, i) => ({
+    id: `opt${i + 1}`,
+    name,
+    tagline: PLACEHOLDER,
+    summary: PLACEHOLDER,
+    howItWorks: PLACEHOLDER,
+    effectiveness: { text: PLACEHOLDER, citationIds: ['M1'] },
+    benefits: [{ text: PLACEHOLDER, citationIds: ['M1'] }],
+    risks: [{ text: PLACEHOLDER, citationIds: ['M1'] }],
+    logistics: PLACEHOLDER,
+    goodFitIf: ['(fill in)'],
+    thinkTwiceIf: ['(fill in)'],
+  }));
+  return {
+    title: `${mockTopic(decision)} (fallback draft)`,
+    decisionStatement: decision,
+    intro: PLACEHOLDER,
+    options,
+    comparison: [
+      { feature: 'How you take it', values: options.map((o) => ({ optionId: o.id, value: '(fill in)' })) },
+      { feature: 'Visit frequency', values: options.map((o) => ({ optionId: o.id, value: '(fill in)' })) },
+    ],
+    valuesQuestions: [
+      {
+        id: 'v1', question: 'What matters most to you in this decision?', helpText: '(fallback question; replace)',
+        answers: options.map((o) => ({ label: `Something that fits: ${o.name}`, favors: [o.id], note: '' })),
+      },
+    ],
+    summaryGuidance: 'This summary is a conversation starter, not a verdict. You and your provider decide together.',
+    faqs: [{ q: 'Why does this draft look unfinished?', a: 'It was produced in fallback mode without an AI key, to let the team test the workflow.', citationIds: [] }],
+    glossary: [],
+    conversationGuide: {
+      steps: [
+        { title: 'Team talk', script: 'There is a decision to make and more than one good option. Can we work through it together?', tips: [] },
+        { title: 'Option talk', script: 'Walk through each option side by side using the tool.', tips: [] },
+        { title: 'Decision talk', script: 'What matters most to you of what we discussed?', tips: [] },
+      ],
+    },
+    citations,
+  };
+}
+
 async function generateTool({ decision, materialsText, evidence, interview }) {
+  if (isMock()) return mockGenerateTool({ decision, evidence });
   const evidenceBlock = evidence.length
     ? evidence.map((e) => `[E${e.id}] ${e.title} (${e.journal || 'journal'}, ${e.year || 'n.d.'}) ${e.url}\nTags: ${e.tags || ''}\nSummary: ${e.summary || ''}\nAbstract: ${(e.abstract || '').slice(0, 1200)}`).join('\n\n')
     : '(none provided)';
@@ -341,6 +467,17 @@ REQUIREMENTS:
 }
 
 async function generateTraining({ decision, tool, interview }) {
+  if (isMock()) {
+    const P = '[FALLBACK - placeholder until generated with an API key]';
+    return {
+      overview: P, whenToUse: P, introducingTheTool: P,
+      talkingPoints: [P],
+      commonQuestions: [{ q: 'Which option is best?', a: P }],
+      pitfalls: [P],
+      equityNotes: P,
+      timeNeeded: P,
+    };
+  }
   return askJson({
     system: SYSTEM,
     prompt: `Write a decision-specific training companion for clinicians who will use this shared decision-making tool during visits. The general SDM skills module (three-talk model) is taught separately; this companion is about THIS decision and THIS population.\n\nDecision: ${decision}\n\nTool option names: ${tool.options.map((o) => o.name).join('; ')}\n\nPopulation interview answers:\n${JSON.stringify(interview || {}, null, 2)}\n\nInclude: when in the visit to use the tool, how to introduce it in one or two sentences, decision-specific talking points, the questions patients in this population are most likely to ask with strong answers, pitfalls (including subtle steering and implicit bias risks specific to this decision), equity notes, and realistic time needed.`,
@@ -350,16 +487,32 @@ async function generateTraining({ decision, tool, interview }) {
 }
 
 async function triageSurveillance({ decision, items }) {
-  const list = items.map((it) => `ID ${it.id} [${it.source}] ${it.title}\n${(it.snippet || '').slice(0, 1200)}`).join('\n\n---\n\n');
-  return askJson({
-    system: SYSTEM,
-    prompt: `You monitor new literature and patient community discussion for a live shared decision-making tool about: "${decision}".\n\nFor each item below, decide whether the clinical team should see it (flag=true), rate relevance, and explain in one sentence why (e.g. new evidence that may change content, emerging side-effect discussion, access barrier, common misinformation worth addressing in the tool). Do not flag routine personal anecdotes with no actionable signal.\n\n${list}`,
-    schema: TRIAGE_SCHEMA,
-    maxTokens: 16000,
-  });
+  if (isMock()) {
+    return {
+      items: items.map((it) => ({
+        id: it.id,
+        flag: true,
+        relevance: 'medium',
+        whyFlagged: 'Fallback triage (no API key): surfaced for manual review.',
+      })),
+    };
+  }
+  const results = [];
+  for (const batch of chunk(items, 12)) {
+    const list = batch.map((it) => `ID ${it.id} [${it.source}] ${it.title}\n${(it.snippet || '').slice(0, 1200)}`).join('\n\n---\n\n');
+    const { items: triaged } = await askJson({
+      system: SYSTEM,
+      prompt: `You monitor new literature and patient community discussion for a live shared decision-making tool about: "${decision}".\n\nFor each item below, decide whether the clinical team should see it (flag=true), rate relevance, and explain in one sentence why (e.g. new evidence that may change content, emerging side-effect discussion, access barrier, common misinformation worth addressing in the tool). Do not flag routine personal anecdotes with no actionable signal.\n\n${list}`,
+      schema: TRIAGE_SCHEMA,
+      maxTokens: 16000,
+    });
+    results.push(...triaged);
+  }
+  return { items: results };
 }
 
 module.exports = {
+  isMock,
   INTERVIEW_QUESTIONS,
   buildPubmedQueries,
   tagEvidence,

@@ -1,6 +1,17 @@
+const fs = require('fs');
+const path = require('path');
+
+// Load server/.env if present (KEY=VALUE lines; never overrides real env vars).
+const envPath = path.join(__dirname, '.env');
+if (fs.existsSync(envPath)) {
+  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+    if (m && !(m[1] in process.env)) process.env[m[1]] = m[2];
+  }
+}
+
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 
 require('./db');
 const { seedAdmin } = require('./auth');
@@ -24,7 +35,12 @@ app.use('/api', require('./routes/reviews')); // exposes /api/review/:token (pub
 app.use('/api/public', require('./routes/public'));
 app.use('/api/surveillance', require('./routes/surveillance'));
 
-app.get('/api/health', (req, res) => res.json({ ok: true, aiConfigured: !!process.env.ANTHROPIC_API_KEY }));
+app.get('/api/health', (req, res) => res.json({
+  ok: true,
+  aiConfigured: !!process.env.ANTHROPIC_API_KEY,
+  mockMode: !process.env.ANTHROPIC_API_KEY && process.env.MOCK_AI === '1',
+  redditConfigured: require('./services/reddit').redditConfigured(),
+}));
 
 // Serve built client in production
 if (process.env.NODE_ENV === 'production') {

@@ -6,6 +6,7 @@ const db = require('../db');
 const { requireAuth } = require('../auth');
 const { getProject, logRevision } = require('./projects');
 const { askText, pdfDocument } = require('../services/anthropic');
+const { isMock } = require('../services/generator');
 
 const uploadsDir = path.join(process.env.DATA_DIR || __dirname + '/..', 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
@@ -34,6 +35,8 @@ async function extractText(material) {
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 150000);
+    // Fallback mode: keep the raw page text without AI cleanup.
+    if (isMock()) return stripped;
     return askText({ prompt: `${EXTRACT_PROMPT}\n\nPage text:\n${stripped}`, maxTokens: 16000 });
   }
 
@@ -41,6 +44,7 @@ async function extractText(material) {
     const buf = fs.readFileSync(material.file_path);
     const ext = (material.label || '').toLowerCase();
     if (material.mime === 'application/pdf' || ext.endsWith('.pdf')) {
+      if (isMock()) throw new Error('PDF extraction requires the AI key. Convert to TXT/MD, or add the key.');
       return askText({
         prompt: EXTRACT_PROMPT,
         documents: [pdfDocument(buf.toString('base64'), material.label)],

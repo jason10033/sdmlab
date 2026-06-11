@@ -324,12 +324,15 @@ function DraftPanel({ project, onChange }) {
   }, [project.id]);
   useEffect(() => { load(); }, [load]);
 
+  const [genStep, setGenStep] = useState('');
+
   useEffect(() => {
     if (genStatus !== 'running') return;
     const t = setInterval(async () => {
       const s = await api.generateStatus(project.id);
-      if (s.status === 'done') { setGenStatus('idle'); clearInterval(t); await load(); onChange(); }
-      if (s.status === 'error') { setGenStatus('idle'); setError(s.error); clearInterval(t); }
+      if (s.step) setGenStep(s.step);
+      if (s.status === 'done') { setGenStatus('idle'); setGenStep(''); clearInterval(t); await load(); onChange(); }
+      if (s.status === 'error') { setGenStatus('idle'); setGenStep(''); setError(s.error); clearInterval(t); }
     }, 4000);
     return () => clearInterval(t);
   }, [genStatus, project.id, load, onChange]);
@@ -347,7 +350,7 @@ function DraftPanel({ project, onChange }) {
         {error && <div className="error">{error}</div>}
         <div className="toolbar">
           <button className="btn" disabled={genStatus === 'running'} onClick={generate}>
-            {genStatus === 'running' ? 'Generating (this takes a few minutes)...' : latest ? 'Regenerate (new version)' : 'Generate draft'}
+            {genStatus === 'running' ? `${genStep || 'Generating'}...` : latest ? 'Regenerate (new version)' : 'Generate draft'}
           </button>
           {latest && <span className="muted">Current: version {latest.version} ({latest.note}), {new Date(latest.created_at).toLocaleString()}</span>}
         </div>

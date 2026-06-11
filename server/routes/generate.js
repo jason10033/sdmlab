@@ -2,7 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../auth');
 const { getProject, logRevision } = require('./projects');
-const { generateTool, generateTraining } = require('../services/generator');
+const { generateTool, generateTraining, isMock } = require('../services/generator');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -15,7 +15,7 @@ router.post('/:id/generate', getProject, (req, res) => {
   if (jobs.get(projectId)?.status === 'running') {
     return res.status(409).json({ error: 'Generation already in progress' });
   }
-  jobs.set(projectId, { status: 'running' });
+  jobs.set(projectId, { status: 'running', step: 'Drafting the decision tool' });
   res.json({ ok: true, status: 'running' });
 
   setImmediate(async () => {
@@ -30,11 +30,13 @@ router.post('/:id/generate', getProject, (req, res) => {
       const interview = project.interview_json ? JSON.parse(project.interview_json) : null;
 
       const tool = await generateTool({ decision: project.decision, materialsText, evidence, interview });
+      jobs.set(projectId, { status: 'running', step: 'Writing the training companion' });
       const training = await generateTraining({ decision: project.decision, tool, interview });
 
+      const note = isMock() ? 'Fallback draft (no API key; workflow test only)' : 'AI-generated draft';
       const last = db.prepare('SELECT MAX(version) AS v FROM tool_versions WHERE project_id = ?').get(projectId).v || 0;
       db.prepare('INSERT INTO tool_versions (project_id, version, content_json, training_json, note) VALUES (?, ?, ?, ?, ?)')
-        .run(projectId, last + 1, JSON.stringify(tool), JSON.stringify(training), 'AI-generated draft');
+        .run(projectId, last + 1, JSON.stringify(tool), JSON.stringify(training), note);
       logRevision(projectId, 'draft', 'generated', `Version ${last + 1} generated`, null);
       jobs.set(projectId, { status: 'done' });
     } catch (err) {

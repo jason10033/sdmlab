@@ -18,26 +18,36 @@ function firstText(message) {
   return block ? block.text : '';
 }
 
-// Structured JSON call. Schema must use additionalProperties: false on every object.
+// Structured JSON call. Schema must use additionalProperties: false on every
+// object. Retries once on truncation or invalid JSON before giving up.
 async function askJson({ system, prompt, schema, maxTokens = 16000, documents = [] }) {
   const anthropic = getClient();
   const content = [
     ...documents,
     { type: 'text', text: prompt },
   ];
-  const stream = anthropic.messages.stream({
-    model: MODEL,
-    max_tokens: maxTokens,
-    thinking: { type: 'adaptive' },
-    system,
-    output_config: { format: { type: 'json_schema', schema } },
-    messages: [{ role: 'user', content }],
-  });
-  const message = await stream.finalMessage();
-  if (message.stop_reason === 'max_tokens') {
-    throw new Error('Model output was truncated; try again or simplify the input.');
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const stream = anthropic.messages.stream({
+      model: MODEL,
+      max_tokens: maxTokens,
+      thinking: { type: 'adaptive' },
+      system,
+      output_config: { format: { type: 'json_schema', schema } },
+      messages: [{ role: 'user', content }],
+    });
+    const message = await stream.finalMessage();
+    if (message.stop_reason === 'max_tokens') {
+      lastError = new Error('Model output was truncated; try again or simplify the input.');
+      continue;
+    }
+    try {
+      return JSON.parse(firstText(message));
+    } catch (err) {
+      lastError = new Error(`Model returned invalid JSON: ${err.message}`);
+    }
   }
-  return JSON.parse(firstText(message));
+  throw lastError;
 }
 
 // Free-text call (used for extraction from PDFs and URLs).
