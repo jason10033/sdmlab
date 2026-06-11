@@ -463,7 +463,9 @@ REQUIREMENTS:
 - conversationGuide: a provider-facing script following the three-talk model (team talk, option talk, decision talk) adapted to this decision.
 - summaryGuidance: text shown to the patient with their values summary, reminding them the result is a conversation starter, not a verdict.`;
 
-  return askJson({ system: SYSTEM, prompt, schema: TOOL_SCHEMA, maxTokens: 60000 });
+  // TOOL_SCHEMA is too large for the API's strict grammar compiler; use
+  // prompt-guided JSON (parsed and retried) instead.
+  return askJson({ system: SYSTEM, prompt, schema: TOOL_SCHEMA, maxTokens: 60000, strict: false });
 }
 
 async function generateTraining({ decision, tool, interview }) {
@@ -483,6 +485,7 @@ async function generateTraining({ decision, tool, interview }) {
     prompt: `Write a decision-specific training companion for clinicians who will use this shared decision-making tool during visits. The general SDM skills module (three-talk model) is taught separately; this companion is about THIS decision and THIS population.\n\nDecision: ${decision}\n\nTool option names: ${tool.options.map((o) => o.name).join('; ')}\n\nPopulation interview answers:\n${JSON.stringify(interview || {}, null, 2)}\n\nInclude: when in the visit to use the tool, how to introduce it in one or two sentences, decision-specific talking points, the questions patients in this population are most likely to ask with strong answers, pitfalls (including subtle steering and implicit bias risks specific to this decision), equity notes, and realistic time needed.`,
     schema: TRAINING_SCHEMA,
     maxTokens: 16000,
+    strict: false,
   });
 }
 
