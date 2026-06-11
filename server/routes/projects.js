@@ -125,6 +125,36 @@ router.post('/:id/stage', getProject, (req, res) => {
   res.json({ ok: true, stage });
 });
 
+// Maintenance sign-off: stamp the literature-review date (shown publicly).
+router.post('/:id/signoff', getProject, (req, res) => {
+  db.prepare('UPDATE projects SET last_reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(req.project.id);
+  logRevision(req.project.id, req.project.stage, 'literature_signoff', req.body?.note || 'Evidence reviewed and signed off', req.user.id);
+  const p = db.prepare('SELECT last_reviewed_at FROM projects WHERE id = ?').get(req.project.id);
+  res.json({ ok: true, last_reviewed_at: p.last_reviewed_at });
+});
+
+// Publish to the public repository. Forks (parent_project_id set) must record
+// the adaptation reasons and a note; these are shown publicly for transparency.
+router.post('/:id/publish', getProject, (req, res) => {
+  const p = req.project;
+  if (p.stage !== 'production') return res.status(409).json({ error: 'Only production tools can be published to the repository.' });
+  const isFork = !!p.parent_project_id;
+  const { reasons, note } = req.body || {};
+  if (isFork && (!Array.isArray(reasons) || reasons.length === 0)) {
+    return res.status(400).json({ error: 'Please select at least one reason this tool was adapted.' });
+  }
+  db.prepare('UPDATE projects SET repo_published = 1, repo_published_at = CURRENT_TIMESTAMP, mod_reasons = ?, mod_note = ? WHERE id = ?')
+    .run(isFork ? JSON.stringify(reasons) : null, isFork ? (note || null) : null, p.id);
+  logRevision(p.id, p.stage, 'published_to_repository', isFork ? `Adapted version published: ${reasons.join(', ')}` : 'Published to public repository', req.user.id);
+  res.json({ ok: true });
+});
+
+router.post('/:id/unpublish', getProject, (req, res) => {
+  db.prepare('UPDATE projects SET repo_published = 0 WHERE id = ?').run(req.project.id);
+  logRevision(req.project.id, req.project.stage, 'unpublished_from_repository', null, req.user.id);
+  res.json({ ok: true });
+});
+
 // Aggregate usage analytics for evaluation: event counts, total and last 30 days.
 router.get('/:id/analytics', getProject, (req, res) => {
   const totals = db.prepare(`

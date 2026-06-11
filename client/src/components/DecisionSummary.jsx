@@ -55,6 +55,12 @@ export default function DecisionSummary({ content, answers, extraQuestions, setE
     if (onShare) onShare();
   }
 
+  function textIt() {
+    // Opens the device SMS app with the summary prefilled. Works on phones.
+    window.open(`sms:?&body=${encodeURIComponent(buildText())}`, '_self');
+    if (onShare) onShare();
+  }
+
   if (answered === 0) {
     return <div className="card"><p className="muted">Answer the "what matters to you" questions above first, then come back here to build a summary you can take to your provider.</p></div>;
   }
@@ -114,6 +120,7 @@ export default function DecisionSummary({ content, answers, extraQuestions, setE
 
       <div className="print-cta no-print">
         <button className="btn btn-lg" onClick={() => { if (onShare) onShare(); window.print(); }}>Print this summary</button>
+        <button className="btn btn-lg btn-accent" onClick={textIt}>Text it</button>
       </div>
       <div className="card no-print" style={{ maxWidth: 460, margin: '0 auto' }}>
         <label>{isProvider ? "Email to your provider" : 'Email this to yourself or your provider'}</label>
@@ -121,7 +128,7 @@ export default function DecisionSummary({ content, answers, extraQuestions, setE
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email address" />
           <button className="btn" disabled={!email} onClick={emailIt}>Send</button>
         </div>
-        <p className="hint">Opens your email app with the summary filled in. Nothing is stored by SDMLab.</p>
+        <p className="hint">Email or print opens your own app with the summary filled in. "Text it" opens your phone's messaging app. Nothing is stored by SDMLab.</p>
       </div>
     </div>
   );

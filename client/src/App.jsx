@@ -8,6 +8,9 @@ import Training from './pages/Training.jsx';
 import PublicTool from './pages/PublicTool.jsx';
 import ReviewPortal from './pages/ReviewPortal.jsx';
 import Admin from './pages/Admin.jsx';
+import Repository from './pages/Repository.jsx';
+import HowItWorks from './pages/HowItWorks.jsx';
+import SiteAdmin from './pages/SiteAdmin.jsx';
 
 function authed() {
   return !!localStorage.getItem('sdmlab_token');
@@ -45,9 +48,11 @@ function Nav() {
       <Link to="/" className="brand">SDM<span>Lab</span></Link>
       <div className="navlinks">
         <Link to="/" className={location.pathname === '/' ? 'active' : ''}>Projects</Link>
+        <Link to="/repository" className={location.pathname === '/repository' ? 'active' : ''}>Repository</Link>
         <Link to="/dashboard" className={location.pathname === '/dashboard' ? 'active' : ''}>Dashboard</Link>
         <Link to="/training" className={location.pathname === '/training' ? 'active' : ''}>SDM Training</Link>
         <Link to="/admin" className={location.pathname === '/admin' ? 'active' : ''}>Team</Link>
+        {user?.role === 'superadmin' && <Link to="/site-admin" className={location.pathname === '/site-admin' ? 'active' : ''}>Site Admin</Link>}
       </div>
       <div className="navuser">
         <span>{user?.name}</span>
@@ -74,6 +79,8 @@ export default function App() {
       <Nav />
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/how-it-works" element={<HowItWorks />} />
+        <Route path="/repository" element={<Repository />} />
         <Route path="/t/:slug" element={<PublicTool />} />
         <Route path="/review/:token" element={<ReviewPortal />} />
         <Route path="/" element={<RequireAuth><Projects /></RequireAuth>} />
@@ -81,6 +88,7 @@ export default function App() {
         <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
         <Route path="/training" element={<RequireAuth><Training /></RequireAuth>} />
         <Route path="/admin" element={<RequireAuth><Admin /></RequireAuth>} />
+        <Route path="/site-admin" element={<RequireAuth><SiteAdmin /></RequireAuth>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </HashRouter>

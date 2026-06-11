@@ -153,7 +153,9 @@ export default function PublicTool({ slugOverride }) {
       {view === 'training' && <div className="card"><TrainingCompanion training={data.training} /></div>}
 
       <p className="muted" style={{ textAlign: 'center', marginTop: '2rem' }}>
-        Built with SDMLab. Version {data.version}. This tool supports, and does not replace, a conversation with your healthcare provider.
+        Built with SDMLab. Version {data.version}.
+        {data.lastReviewedAt ? ` Evidence last reviewed ${new Date(data.lastReviewedAt).toLocaleDateString()}.` : ''}
+        {' '}This tool supports, and does not replace, a conversation with your healthcare provider.
       </p>
     </div>
   );

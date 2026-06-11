@@ -34,6 +34,8 @@ app.use('/api/projects', require('./routes/generate'));
 app.use('/api/projects', reviews.router);
 app.use('/api', reviews.router); // exposes /api/review/:token (public)
 app.use('/api/public', require('./routes/public'));
+app.use('/api/repository', require('./routes/repository').router);
+app.use('/api/admin', require('./routes/admin'));
 app.use('/api/surveillance', require('./routes/surveillance'));
 
 app.get('/api/health', (req, res) => res.json({

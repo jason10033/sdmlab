@@ -61,12 +61,48 @@ const IPDASI = {
   ],
 };
 
-const INSTRUMENTS = { SURE, PREPDM, IPDASI };
+// Implementation-science measures (Weiner et al., 2017), 4 items each, 5-point.
+// Acceptability (AIM), Appropriateness (IAM), Feasibility (FIM) of the tool.
+const IMPL_SCALE = ['Completely disagree', 'Disagree', 'Neither agree nor disagree', 'Agree', 'Completely agree'];
+
+const AIM = {
+  id: 'aim', name: 'Acceptability of Intervention Measure (AIM)', audience: 'provider', type: 'scale5', scale: IMPL_SCALE,
+  scoring: 'Mean of 4 items (1-5). Higher = more acceptable.',
+  items: [
+    { id: 'aim_1', text: 'This SDM tool meets my approval.' },
+    { id: 'aim_2', text: 'This SDM tool is appealing to me.' },
+    { id: 'aim_3', text: 'I like this SDM tool.' },
+    { id: 'aim_4', text: 'I welcome this SDM tool.' },
+  ],
+};
+const IAM = {
+  id: 'iam', name: 'Intervention Appropriateness Measure (IAM)', audience: 'provider', type: 'scale5', scale: IMPL_SCALE,
+  scoring: 'Mean of 4 items (1-5). Higher = more appropriate.',
+  items: [
+    { id: 'iam_1', text: 'This SDM tool seems fitting for my setting.' },
+    { id: 'iam_2', text: 'This SDM tool seems suitable for my patients.' },
+    { id: 'iam_3', text: 'This SDM tool seems applicable to my practice.' },
+    { id: 'iam_4', text: 'This SDM tool seems like a good match for this decision.' },
+  ],
+};
+const FIM = {
+  id: 'fim', name: 'Feasibility of Intervention Measure (FIM)', audience: 'provider', type: 'scale5', scale: IMPL_SCALE,
+  scoring: 'Mean of 4 items (1-5). Higher = more feasible.',
+  items: [
+    { id: 'fim_1', text: 'This SDM tool seems implementable in my setting.' },
+    { id: 'fim_2', text: 'This SDM tool seems possible to use in my visits.' },
+    { id: 'fim_3', text: 'This SDM tool seems doable in my workflow.' },
+    { id: 'fim_4', text: 'This SDM tool seems easy to use.' },
+  ],
+};
+
+const INSTRUMENTS = { SURE, PREPDM, IPDASI, AIM, IAM, FIM };
 
 // Which instruments apply at each stage, by audience.
+// Providers: IPDAS quality at alpha; implementation measures at beta field testing.
 const STAGE_INSTRUMENTS = {
   alpha: { patient: ['sure', 'prepdm'], provider: ['ipdasi'] },
-  beta: { patient: ['sure', 'prepdm'], provider: ['ipdasi'] },
+  beta: { patient: ['sure', 'prepdm'], provider: ['aim', 'iam', 'fim'] },
 };
 
 function instrumentsFor(stage, audience) {

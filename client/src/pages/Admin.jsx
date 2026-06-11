@@ -8,9 +8,21 @@ export default function Admin() {
   const [pw, setPw] = useState('');
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
+  const [profile, setProfile] = useState({ name: '', institution: '', title: '' });
 
-  const load = useCallback(async () => setUsers(await api.users()), []);
+  const load = useCallback(async () => {
+    setUsers(await api.users());
+    const me = (await api.me()).user;
+    setProfile({ name: me.name || '', institution: me.institution || '', title: me.title || '' });
+  }, []);
   useEffect(() => { load(); }, [load]);
+
+  async function saveProfile(e) {
+    e.preventDefault();
+    setError(''); setMsg('');
+    try { await api.updateProfile(profile); setMsg('Profile saved.'); await load(); }
+    catch (err) { setError(err.message); }
+  }
 
   async function addUser(e) {
     e.preventDefault();
@@ -38,6 +50,19 @@ export default function Admin() {
       <h1>Team settings</h1>
       {msg && <div className="success">{msg}</div>}
       {error && <div className="error">{error}</div>}
+
+      <div className="card">
+        <h3>My profile</h3>
+        <form onSubmit={saveProfile}>
+          <label>Full name</label>
+          <input type="text" value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} />
+          <label>University, medical center, or clinic</label>
+          <input type="text" value={profile.institution} onChange={(e) => setProfile({ ...profile, institution: e.target.value })} />
+          <label>Role / title</label>
+          <input type="text" value={profile.title} onChange={(e) => setProfile({ ...profile, title: e.target.value })} />
+          <div style={{ marginTop: '.6rem' }}><button className="btn btn-secondary">Save profile</button></div>
+        </form>
+      </div>
 
       <div className="card">
         <h3>Change my password</h3>

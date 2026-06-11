@@ -7,7 +7,7 @@ const router = express.Router();
 // Tool content for patients and providers. Served at beta (field testing) and
 // production. No login, no identifiers stored.
 router.get('/tool/:slug', (req, res) => {
-  const project = db.prepare('SELECT id, title, decision, stage FROM projects WHERE slug = ?').get(req.params.slug);
+  const project = db.prepare('SELECT id, title, decision, stage, last_reviewed_at FROM projects WHERE slug = ?').get(req.params.slug);
   if (!project || !['beta', 'production'].includes(project.stage)) {
     return res.status(404).json({ error: 'Tool not found or not yet published' });
   }
@@ -19,6 +19,7 @@ router.get('/tool/:slug', (req, res) => {
     decision: project.decision,
     stage: project.stage,
     isBeta: project.stage === 'beta',
+    lastReviewedAt: project.last_reviewed_at,
     content: JSON.parse(version.content_json),
     training: version.training_json ? JSON.parse(version.training_json) : null,
     version: version.version,

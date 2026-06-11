@@ -30,12 +30,25 @@ async function req(method, path, body, isForm = false) {
 export const api = {
   // Auth
   login: (email, password) => req('POST', '/auth/login', { email, password }),
+  register: (d) => req('POST', '/auth/register', d),
   logout: () => req('POST', '/auth/logout'),
   me: () => req('GET', '/auth/me'),
+  updateProfile: (d) => req('PUT', '/auth/profile', d),
   users: () => req('GET', '/auth/users'),
   addUser: (d) => req('POST', '/auth/users', d),
   changePassword: (password) => req('POST', '/auth/change-password', { password }),
   health: () => req('GET', '/health'),
+
+  // Repository + fork + publish + maintenance
+  getRepository: () => req('GET', '/repository'),
+  getRepoMeta: () => req('GET', '/repository/meta'),
+  forkTool: (slug) => req('POST', `/repository/${slug}/fork`),
+  signoff: (id, note) => req('POST', `/projects/${id}/signoff`, { note }),
+  publish: (id, d) => req('POST', `/projects/${id}/publish`, d),
+  unpublish: (id) => req('POST', `/projects/${id}/unpublish`),
+
+  // Site admin
+  adminOverview: () => req('GET', '/admin/overview'),
 
   // Projects + lifecycle
   getProjects: () => req('GET', '/projects'),

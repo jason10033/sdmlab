@@ -2,6 +2,15 @@
 
 Rapid development of shared decision-making (SDM) tools. A clinical team brings a decision, uploads existing materials, and SDMLab searches the literature, interviews the team about their population, and generates an IPDAS-structured decision aid in three formats (interactive patient tool, printable one-pager, provider conversation guide) plus a decision-specific training companion. Each tool moves through a managed lifecycle with human review gates, and live tools get weekly AI-triaged surveillance of PubMed and patient communities.
 
+## Accounts, repository, and roles
+
+- **Self-registration**: anyone can create an account (name, institution, email) and gets their own private workspace. Public pages: `/how-it-works`, `/repository`.
+- **Public repository**: finalized (production) tools can be published for anyone to use or adapt. Adapting forks a full editable copy into your workspace, linked to the original. Contributing an adapted version back publishes immediately and records public provenance: who adapted it (email, institution) and why (a multi-select reasons checklist plus notes).
+- **Maintenance**: after production, weekly monitoring continues; the builder signs off to stamp a public "evidence last reviewed" date.
+- **Roles**: `superadmin` (the seeded account) sees a Site Admin page with cross-workspace usage, project stages, last activity, and median time between stages. Self-registered users are admins of their own workspace only.
+- **Sharing**: the patient summary can be printed, emailed (mailto), or texted (sms:) from the user's own device.
+- **Evaluation instruments**: SURE and Preparation for Decision Making (patients), IPDASi (provider, alpha), and AIM/IAM/FIM implementation measures (provider, beta), plus custom questions.
+
 ## Custom domain and per-tool subdomains (sdmlab.com)
 
 The app serves a tool directly when reached at `<slug>.sdmlab.com`. To enable that once you own sdmlab.com:

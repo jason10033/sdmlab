@@ -594,6 +594,7 @@ function ProductionPanel({ project }) {
   const [dash, setDash] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [running, setRunning] = useState(false);
+  const [proj, setProj] = useState(project);
   const liveUrl = `${window.location.origin}${window.location.pathname}#/t/${project.slug}`;
 
   const load = useCallback(async () => {
@@ -603,6 +604,7 @@ function ProductionPanel({ project }) {
       feedback: d.feedback.filter((f) => f.project_title === project.title),
     });
     setAnalytics(await api.getAnalytics(project.id));
+    setProj(await api.getProject(project.id));
   }, [project.title, project.id]);
   useEffect(() => { load(); }, [load]);
 
@@ -621,6 +623,9 @@ function ProductionPanel({ project }) {
           </>
         ) : <p className="muted">Not in production yet. Complete beta field testing and advance to Production.</p>}
       </div>
+
+      <MaintenancePanel project={proj} onChange={load} />
+      <PublishPanel project={proj} onChange={load} />
 
       <div className="card">
         <div className="toolbar">
@@ -665,6 +670,77 @@ function ProductionPanel({ project }) {
         ))}
       </div>
     </>
+  );
+}
+
+// Maintenance: literature-review sign-off, sets the public "last reviewed" date.
+function MaintenancePanel({ project, onChange }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="card">
+      <h3>Ongoing maintenance</h3>
+      <p className="muted">
+        Weekly literature and community monitoring continues automatically. When you have reviewed the latest flags,
+        sign off to stamp the tool with today's date so patients and other clinicians can see how current it is.
+      </p>
+      <p>Evidence last reviewed: <strong>{project.last_reviewed_at ? new Date(project.last_reviewed_at).toLocaleDateString() : 'not yet signed off'}</strong></p>
+      <button className="btn btn-secondary" disabled={busy} onClick={async () => {
+        setBusy(true);
+        try { await api.signoff(project.id, 'Reviewed surveillance flags and confirmed content is current'); await onChange(); }
+        finally { setBusy(false); }
+      }}>
+        {busy ? 'Signing off...' : 'Sign off: evidence reviewed today'}
+      </button>
+    </div>
+  );
+}
+
+// Publish to the public repository (forks must record adaptation reasons).
+function PublishPanel({ project, onChange }) {
+  const [reasonsList, setReasonsList] = useState([]);
+  const [chosen, setChosen] = useState([]);
+  const [note, setNote] = useState('');
+  const [error, setError] = useState('');
+  const isFork = !!project.parent_project_id;
+
+  useEffect(() => { api.getRepoMeta().then((m) => setReasonsList(m.reasons)); }, []);
+
+  function toggle(r) { setChosen((c) => c.includes(r) ? c.filter((x) => x !== r) : [...c, r]); }
+
+  async function publish() {
+    setError('');
+    try { await api.publish(project.id, isFork ? { reasons: chosen, note } : {}); await onChange(); }
+    catch (e) { setError(e.message); }
+  }
+
+  return (
+    <div className="card" style={{ borderColor: 'var(--secondary)', borderWidth: 2 }}>
+      <h3>Public repository</h3>
+      {project.repo_published ? (
+        <>
+          <p className="success" style={{ margin: '0 0 .6rem' }}>This tool is published in the public repository.</p>
+          <button className="btn btn-ghost btn-sm" onClick={() => api.unpublish(project.id).then(onChange)}>Remove from repository</button>
+        </>
+      ) : (
+        <>
+          <p className="muted">Publishing makes this finalized tool free for any clinic to use or adapt. {isFork && 'Because this tool was adapted from another, please record what you changed; this is shown publicly for transparency.'}</p>
+          {isFork && (
+            <>
+              <label>Why was this tool adapted? (choose all that apply)</label>
+              <div className="pill-list">
+                {reasonsList.map((r) => (
+                  <button key={r} type="button" className={`answer-btn ${chosen.includes(r) ? 'selected' : ''}`} style={{ padding: '.3rem .8rem', fontSize: '.85rem' }} onClick={() => toggle(r)}>{r}</button>
+                ))}
+              </div>
+              <label>Notes on the adaptation (population, setting, what changed)</label>
+              <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Adapted for adolescent patients in a school-based health center; simplified language and added local referral options." />
+            </>
+          )}
+          {error && <div className="error">{error}</div>}
+          <button className="btn" style={{ marginTop: '.6rem' }} disabled={isFork && chosen.length === 0} onClick={publish}>Publish to repository</button>
+        </>
+      )}
+    </div>
   );
 }
 

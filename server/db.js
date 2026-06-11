@@ -206,6 +206,19 @@ function addColumn(table, def) {
 addColumn('review_invites', "stage TEXT");
 addColumn('projects', "beta_at DATETIME");
 addColumn('projects', "beta_target INTEGER NOT NULL DEFAULT 10");
+addColumn('projects', "last_reviewed_at DATETIME");
+addColumn('projects', "parent_project_id INTEGER");
+addColumn('projects', "repo_published INTEGER NOT NULL DEFAULT 0");
+addColumn('projects', "repo_published_at DATETIME");
+addColumn('projects', "mod_reasons TEXT");
+addColumn('projects', "mod_note TEXT");
+addColumn('users', "institution TEXT");
+addColumn('users', "title TEXT");
+
+// Ensure a site superadmin exists: promote the original seeded account if none.
+if (!db.prepare("SELECT 1 FROM users WHERE role = 'superadmin'").get()) {
+  db.exec("UPDATE users SET role = 'superadmin' WHERE id = (SELECT MIN(id) FROM users)");
+}
 
 // 3. Unified evaluations table: instrument-based evals from invite links
 //    (alpha) and in-tool field testing (beta), with validated-scale data.

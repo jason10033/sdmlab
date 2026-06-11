@@ -41,8 +41,8 @@ function seedAdmin() {
   const email = process.env.SEED_ADMIN_EMAIL || 'admin@sdmlab.local';
   const password = process.env.SEED_ADMIN_PASSWORD || 'changeme';
   db.prepare('INSERT INTO users (org_id, email, name, password_hash, role) VALUES (1, ?, ?, ?, ?)')
-    .run(email, 'SDMLab Admin', hashPassword(password), 'admin');
-  console.log(`Seeded admin account: ${email}`);
+    .run(email, 'SDMLab Admin', hashPassword(password), 'superadmin');
+  console.log(`Seeded superadmin account: ${email}`);
 }
 
 module.exports = { hashPassword, verifyPassword, createSession, requireAuth, seedAdmin };
