@@ -74,6 +74,7 @@ export const api = {
   // Evidence + Reddit
   getEvidence: (id) => req('GET', `/projects/${id}/evidence`),
   scanEvidence: (id) => req('POST', `/projects/${id}/evidence/scan`),
+  scanStatus: (id) => req('GET', `/projects/${id}/evidence/scan/status`),
   setEvidenceStatus: (id, eid, status) => req('PATCH', `/projects/${id}/evidence/${eid}`, { status }),
   discoverReddit: (id) => req('POST', `/projects/${id}/reddit/discover`),
   getSubreddits: (id) => req('GET', `/projects/${id}/subreddits`),

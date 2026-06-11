@@ -14,43 +14,64 @@ router.get('/:id/evidence', getProject, (req, res) => {
   res.json(rows);
 });
 
-// Run the literature scan: build queries, search PubMed, screen abstracts with the LLM.
-router.post('/:id/evidence/scan', getProject, async (req, res) => {
-  try {
-    const { queries, surveillanceQuery } = await buildPubmedQueries(req.project.decision);
-    db.prepare('UPDATE projects SET pubmed_query = ? WHERE id = ?').run(surveillanceQuery, req.project.id);
+// Run the literature scan as a background job: with real AI the multiple model
+// calls exceed proxy timeouts (Render kills HTTP requests at ~100s), so the
+// client polls /evidence/scan/status, same pattern as generation.
+const scanJobs = new Map(); // projectId -> {status, step, result, error}
 
-    const seenPmids = new Set(
-      db.prepare("SELECT external_id FROM evidence WHERE project_id = ? AND source = 'pubmed'").all(req.project.id).map((r) => r.external_id)
-    );
-    const articles = [];
-    for (const q of queries) {
-      const found = await pubmed.search(q.query, { retmax: 15 });
-      for (const a of found) {
-        if (!seenPmids.has(a.pmid) && !articles.some((x) => x.pmid === a.pmid)) articles.push(a);
-      }
-    }
-
-    let inserted = 0;
-    if (articles.length) {
-      const tagged = await tagEvidence(req.project.decision, articles.slice(0, 60));
-      const byPmid = new Map(tagged.items.map((t) => [t.pmid, t]));
-      const insert = db.prepare(`
-        INSERT OR IGNORE INTO evidence (project_id, source, external_id, title, abstract, journal, year, url, tags, summary, status)
-        VALUES (?, 'pubmed', ?, ?, ?, ?, ?, ?, ?, ?, 'flagged')
-      `);
-      for (const a of articles) {
-        const t = byPmid.get(a.pmid);
-        if (!t || !t.relevant) continue;
-        insert.run(req.project.id, a.pmid, a.title, a.abstract, a.journal, a.year, a.url, t.tags.join(','), t.summary);
-        inserted++;
-      }
-    }
-    logRevision(req.project.id, 'evidence', 'literature_scan', `${inserted} abstracts flagged for review`, req.user.id);
-    res.json({ queries, surveillanceQuery, found: articles.length, flagged: inserted });
-  } catch (err) {
-    res.status(err.code === 'NO_API_KEY' ? 503 : 500).json({ error: err.message });
+router.post('/:id/evidence/scan', getProject, (req, res) => {
+  const projectId = req.project.id;
+  const project = req.project;
+  if (scanJobs.get(projectId)?.status === 'running') {
+    return res.status(409).json({ error: 'A literature scan is already in progress' });
   }
+  scanJobs.set(projectId, { status: 'running', step: 'Building search queries' });
+  res.json({ ok: true, status: 'running' });
+
+  setImmediate(async () => {
+    try {
+      const { queries, surveillanceQuery } = await buildPubmedQueries(project.decision);
+      db.prepare('UPDATE projects SET pubmed_query = ? WHERE id = ?').run(surveillanceQuery, projectId);
+
+      scanJobs.set(projectId, { status: 'running', step: 'Searching PubMed' });
+      const seenPmids = new Set(
+        db.prepare("SELECT external_id FROM evidence WHERE project_id = ? AND source = 'pubmed'").all(projectId).map((r) => r.external_id)
+      );
+      const articles = [];
+      for (const q of queries) {
+        const found = await pubmed.search(q.query, { retmax: 15 });
+        for (const a of found) {
+          if (!seenPmids.has(a.pmid) && !articles.some((x) => x.pmid === a.pmid)) articles.push(a);
+        }
+      }
+
+      let inserted = 0;
+      if (articles.length) {
+        scanJobs.set(projectId, { status: 'running', step: `Screening ${Math.min(articles.length, 60)} abstracts` });
+        const tagged = await tagEvidence(project.decision, articles.slice(0, 60));
+        const byPmid = new Map(tagged.items.map((t) => [t.pmid, t]));
+        const insert = db.prepare(`
+          INSERT OR IGNORE INTO evidence (project_id, source, external_id, title, abstract, journal, year, url, tags, summary, status)
+          VALUES (?, 'pubmed', ?, ?, ?, ?, ?, ?, ?, ?, 'flagged')
+        `);
+        for (const a of articles) {
+          const t = byPmid.get(a.pmid);
+          if (!t || !t.relevant) continue;
+          insert.run(projectId, a.pmid, a.title, a.abstract, a.journal, a.year, a.url, t.tags.join(','), t.summary);
+          inserted++;
+        }
+      }
+      logRevision(projectId, 'evidence', 'literature_scan', `${inserted} abstracts flagged for review`, req.user.id);
+      scanJobs.set(projectId, { status: 'done', result: { queries, surveillanceQuery, found: articles.length, flagged: inserted } });
+    } catch (err) {
+      console.error('Evidence scan failed:', err);
+      scanJobs.set(projectId, { status: 'error', error: err.message });
+    }
+  });
+});
+
+router.get('/:id/evidence/scan/status', getProject, (req, res) => {
+  res.json(scanJobs.get(req.project.id) || { status: 'idle' });
 });
 
 // Manually add a known paper by PMID (no AI involved). Lands as included,

@@ -193,6 +193,7 @@ function EvidencePanel({ project }) {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [scanResult, setScanResult] = useState(null);
+  const [scanStep, setScanStep] = useState('');
   const [pmid, setPmid] = useState('');
   const [newSub, setNewSub] = useState('');
 
@@ -201,6 +202,26 @@ function EvidencePanel({ project }) {
     setSubreddits(await api.getSubreddits(project.id));
   }, [project.id]);
   useEffect(() => { load(); }, [load]);
+
+  // Poll the scan job until it completes (real AI screening takes minutes).
+  useEffect(() => {
+    if (busy !== 'scan') return;
+    const t = setInterval(async () => {
+      try {
+        const s = await api.scanStatus(project.id);
+        if (s.step) setScanStep(s.step);
+        if (s.status === 'done') { setScanResult(s.result); setBusy(''); setScanStep(''); clearInterval(t); await load(); }
+        if (s.status === 'error') { setError(s.error); setBusy(''); setScanStep(''); clearInterval(t); }
+      } catch { /* transient */ }
+    }, 4000);
+    return () => clearInterval(t);
+  }, [busy, project.id, load]);
+
+  async function startScan() {
+    setError(''); setScanResult(null);
+    try { await api.scanEvidence(project.id); setBusy('scan'); setScanStep('Starting'); }
+    catch (err) { setError(err.message); }
+  }
 
   async function run(name, fn) {
     setBusy(name); setError('');
@@ -217,8 +238,8 @@ function EvidencePanel({ project }) {
         <p className="muted">SDMLab builds PubMed queries for values, preferences, risks, benefits, effectiveness, and guidelines, screens the abstracts, and flags relevant ones. You review every flagged abstract: include it as a citable source or dismiss it.</p>
         {error && <div className="error">{error}</div>}
         <div className="toolbar">
-          <button className="btn" disabled={!!busy} onClick={() => run('scan', async () => setScanResult(await api.scanEvidence(project.id)))}>
-            {busy === 'scan' ? 'Scanning PubMed...' : 'Run literature scan'}
+          <button className="btn" disabled={!!busy} onClick={startScan}>
+            {busy === 'scan' ? `${scanStep || 'Scanning'}...` : 'Run literature scan'}
           </button>
           {scanResult && <span className="muted">{scanResult.found} abstracts screened, {scanResult.flagged} flagged for your review.</span>}
         </div>
