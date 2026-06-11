@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: sdmlab
+    env: node
+    buildCommand: >
+      npm install &&
+      cd server && npm install && cd .. &&
+      cd client && npm install && npm run build
+    startCommand: cd server && npm start
+    disk:
+      name: sdmlab-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATA_DIR
+        value: /var/data
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: CRON_SECRET
+        sync: false
