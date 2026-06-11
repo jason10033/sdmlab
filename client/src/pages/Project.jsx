@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { api } from '../api.js';
+import { api, downloadExport, runSurveillanceAndWait } from '../api.js';
 import ToolView, { GuideSection } from '../components/ToolView.jsx';
 import ToolEditor from '../components/ToolEditor.jsx';
-import { downloadExport } from '../api.js';
 
 export default function Project() {
   const { id } = useParams();
@@ -652,7 +651,7 @@ function ProductionPanel({ project }) {
         <div className="toolbar">
           <h3 style={{ margin: 0 }}>Monitoring queue for this tool</h3>
           <div className="spacer" />
-          <button className="btn btn-sm btn-secondary" disabled={running} onClick={async () => { setRunning(true); try { await api.runSurveillance(); await load(); } finally { setRunning(false); } }}>
+          <button className="btn btn-sm btn-secondary" disabled={running} onClick={async () => { setRunning(true); try { await runSurveillanceAndWait(); await load(); } finally { setRunning(false); } }}>
             {running ? 'Scanning...' : 'Run scan now'}
           </button>
         </div>

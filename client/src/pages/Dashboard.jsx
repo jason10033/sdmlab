@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { api } from '../api.js';
+import { api, runSurveillanceAndWait } from '../api.js';
 import { SurveillanceItem } from './Project.jsx';
 
 export default function Dashboard() {
@@ -13,7 +13,7 @@ export default function Dashboard() {
 
   async function runNow() {
     setRunning(true); setError('');
-    try { await api.runSurveillance(); await load(); }
+    try { await runSurveillanceAndWait(); await load(); }
     catch (err) { setError(err.message); }
     finally { setRunning(false); }
   }

@@ -111,7 +111,19 @@ export const api = {
   setSurveillanceStatus: (itemId, status) => req('PATCH', `/surveillance/items/${itemId}`, { status }),
   setFeedbackStatus: (fid, status) => req('PATCH', `/surveillance/feedback/${fid}`, { status }),
   runSurveillance: () => req('POST', '/surveillance/run'),
+  surveillanceRunStatus: () => req('GET', '/surveillance/run/status'),
 };
+
+// Start a surveillance run and resolve when it finishes (polls the job).
+export async function runSurveillanceAndWait() {
+  await api.runSurveillance();
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 4000));
+    const s = await api.surveillanceRunStatus();
+    if (s.status === 'done') return s.results;
+    if (s.status === 'error') throw new Error(s.error);
+  }
+}
 
 // Authenticated file download (exports). Fetches with the Bearer token and
 // triggers a browser download.

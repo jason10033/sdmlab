@@ -38,18 +38,30 @@ router.patch('/feedback/:feedbackId', requireAuth, (req, res) => {
 });
 
 // Manual run from the dashboard (and external cron via CRON_SECRET).
-router.post('/run', async (req, res) => {
+// Runs as a background job: real-AI triage exceeds proxy timeouts in one request.
+let runJob = { status: 'idle' };
+
+function startRun(res) {
+  if (runJob.status === 'running') return res.status(409).json({ error: 'A scan is already running' });
+  runJob = { status: 'running', startedAt: new Date().toISOString() };
+  setImmediate(async () => {
+    try {
+      const results = await surveillance.runAll();
+      runJob = { status: 'done', results };
+    } catch (err) {
+      runJob = { status: 'error', error: err.message };
+    }
+  });
+  res.json({ ok: true, status: 'running' });
+}
+
+router.post('/run', (req, res) => {
   const auth = req.headers.authorization || '';
   const cronOk = process.env.CRON_SECRET && auth === `Bearer ${process.env.CRON_SECRET}`;
-  if (!cronOk) {
-    // fall through to session auth
-    return requireAuth(req, res, async () => {
-      const results = await surveillance.runAll();
-      res.json({ results });
-    });
-  }
-  const results = await surveillance.runAll();
-  res.json({ results });
+  if (cronOk) return startRun(res);
+  return requireAuth(req, res, () => startRun(res));
 });
+
+router.get('/run/status', requireAuth, (req, res) => res.json(runJob));
 
 module.exports = router;
