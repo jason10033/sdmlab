@@ -14,6 +14,59 @@ router.get('/:id/evidence', getProject, (req, res) => {
   res.json(rows);
 });
 
+// --- Search queries: builder reviews and edits these before scanning ---
+
+function savedQueries(project) {
+  return project.search_queries ? JSON.parse(project.search_queries) : null;
+}
+
+router.get('/:id/evidence/queries', getProject, (req, res) => {
+  res.json({ queries: savedQueries(req.project) || [], surveillanceQuery: req.project.pubmed_query || '' });
+});
+
+// Build suggested queries with AI (cheap call). Saves and returns them; the
+// builder then edits before running the scan.
+router.post('/:id/evidence/queries/suggest', getProject, async (req, res) => {
+  try {
+    const { queries, surveillanceQuery } = await buildPubmedQueries(req.project.decision);
+    db.prepare('UPDATE projects SET search_queries = ?, pubmed_query = ? WHERE id = ?')
+      .run(JSON.stringify(queries), surveillanceQuery, req.project.id);
+    res.json({ queries, surveillanceQuery });
+  } catch (err) {
+    res.status(err.code === 'NO_API_KEY' ? 503 : 500).json({ error: err.message });
+  }
+});
+
+// Save the builder's edited queries.
+router.put('/:id/evidence/queries', getProject, (req, res) => {
+  const { queries, surveillanceQuery } = req.body || {};
+  if (!Array.isArray(queries)) return res.status(400).json({ error: 'queries must be an array' });
+  const clean = queries
+    .map((q) => ({ purpose: q.purpose || 'custom', query: String(q.query || '').trim() }))
+    .filter((q) => q.query);
+  db.prepare('UPDATE projects SET search_queries = ?, pubmed_query = ? WHERE id = ?')
+    .run(JSON.stringify(clean), surveillanceQuery != null ? String(surveillanceQuery).trim() : req.project.pubmed_query, req.project.id);
+  res.json({ ok: true, count: clean.length });
+});
+
+// Preview how many PubMed results each query returns (no AI, no screening) so
+// the builder can see how strict each one is.
+router.post('/:id/evidence/queries/counts', getProject, async (req, res) => {
+  const { queries } = req.body || {};
+  if (!Array.isArray(queries)) return res.status(400).json({ error: 'queries must be an array' });
+  try {
+    const counts = [];
+    for (const q of queries) {
+      const text = String(q.query || '').trim();
+      if (!text) { counts.push({ query: text, count: 0 }); continue; }
+      counts.push({ query: text, count: await pubmed.countResults(text) });
+    }
+    res.json({ counts });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Run the literature scan as a background job: with real AI the multiple model
 // calls exceed proxy timeouts (Render kills HTTP requests at ~100s), so the
 // client polls /evidence/scan/status, same pattern as generation.
@@ -30,8 +83,18 @@ router.post('/:id/evidence/scan', getProject, (req, res) => {
 
   setImmediate(async () => {
     try {
-      const { queries, surveillanceQuery } = await buildPubmedQueries(project.decision);
-      db.prepare('UPDATE projects SET pubmed_query = ? WHERE id = ?').run(surveillanceQuery, projectId);
+      // Use the builder's reviewed/edited queries if present; otherwise build them.
+      const fresh = db.prepare('SELECT search_queries, pubmed_query, decision FROM projects WHERE id = ?').get(projectId);
+      let queries, surveillanceQuery;
+      const saved = fresh.search_queries ? JSON.parse(fresh.search_queries) : null;
+      if (saved && saved.length) {
+        queries = saved;
+        surveillanceQuery = fresh.pubmed_query || '';
+      } else {
+        ({ queries, surveillanceQuery } = await buildPubmedQueries(project.decision));
+        db.prepare('UPDATE projects SET search_queries = ?, pubmed_query = ? WHERE id = ?')
+          .run(JSON.stringify(queries), surveillanceQuery, projectId);
+      }
 
       scanJobs.set(projectId, { status: 'running', step: 'Searching PubMed' });
       const seenPmids = new Set(

@@ -185,6 +185,88 @@ function IntakePanel({ project }) {
   );
 }
 
+// Editable PubMed search queries: builder reviews, tightens/loosens, and can
+// preview how many results each returns before running the (costly) screening.
+const PURPOSES = ['values_preferences', 'risks_benefits', 'effectiveness', 'guidelines', 'custom'];
+
+function SearchQueryEditor({ project }) {
+  const [queries, setQueries] = useState([]);
+  const [surveil, setSurveil] = useState('');
+  const [counts, setCounts] = useState({});
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  const load = useCallback(async () => {
+    const d = await api.getQueries(project.id);
+    setQueries(d.queries.length ? d.queries : []);
+    setSurveil(d.surveillanceQuery || '');
+  }, [project.id]);
+  useEffect(() => { load(); }, [load]);
+
+  function update(i, text) { setQueries((qs) => qs.map((q, j) => (j === i ? { ...q, query: text } : q))); setSaved(false); }
+  function setPurpose(i, p) { setQueries((qs) => qs.map((q, j) => (j === i ? { ...q, purpose: p } : q))); setSaved(false); }
+  function remove(i) { setQueries((qs) => qs.filter((_, j) => j !== i)); setSaved(false); }
+  function add() { setQueries((qs) => [...qs, { purpose: 'custom', query: '' }]); setSaved(false); }
+
+  async function run(name, fn) {
+    setBusy(name); setError('');
+    try { await fn(); } catch (e) { setError(e.message); } finally { setBusy(''); }
+  }
+  const suggest = () => run('suggest', async () => { const d = await api.suggestQueries(project.id); setQueries(d.queries); setSurveil(d.surveillanceQuery); setSaved(false); });
+  const save = () => run('save', async () => { await api.saveQueries(project.id, { queries, surveillanceQuery: surveil }); setSaved(true); });
+  const checkCounts = () => run('counts', async () => {
+    const all = [...queries, { purpose: 'surveillance', query: surveil }].filter((q) => q.query.trim());
+    const d = await api.queryCounts(project.id, all);
+    const map = {}; d.counts.forEach((c) => { map[c.query] = c.count; });
+    setCounts(map);
+  });
+
+  return (
+    <div className="card">
+      <h3>Search queries</h3>
+      <p className="muted">
+        These PubMed queries drive the literature scan. Review and edit them: add MeSH terms or AND clauses to make a query
+        stricter, remove terms to make it broader. Check result counts to see how strict each one is, then run the scan.
+      </p>
+      {error && <div className="error">{error}</div>}
+      <div className="toolbar">
+        <button className="btn btn-secondary btn-sm" disabled={!!busy} onClick={suggest}>
+          {busy === 'suggest' ? 'Building...' : queries.length ? 'Re-suggest with AI' : 'Suggest queries with AI'}
+        </button>
+        <button className="btn btn-ghost btn-sm" disabled={!!busy || !queries.length} onClick={checkCounts}>
+          {busy === 'counts' ? 'Checking PubMed...' : 'Check result counts'}
+        </button>
+        <div className="spacer" />
+        <button className="btn btn-sm" disabled={!!busy} onClick={save}>{busy === 'save' ? 'Saving...' : saved ? 'Saved' : 'Save queries'}</button>
+      </div>
+
+      {queries.length === 0 ? <p className="muted">No queries yet. Suggest them with AI, or add your own.</p> : queries.map((q, i) => (
+        <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 9, padding: '.6rem .8rem', marginBottom: '.5rem' }}>
+          <div className="toolbar" style={{ marginBottom: '.3rem' }}>
+            <select value={q.purpose} onChange={(e) => setPurpose(i, e.target.value)} style={{ maxWidth: 200 }}>
+              {PURPOSES.map((p) => <option key={p} value={p}>{p.replace('_', ' & ')}</option>)}
+            </select>
+            {counts[q.query.trim()] !== undefined && (
+              <span className={`badge ${counts[q.query.trim()] > 500 ? 'badge-warn' : counts[q.query.trim()] < 5 ? 'badge-high' : 'badge-live'}`}>
+                {counts[q.query.trim()].toLocaleString()} results
+              </span>
+            )}
+            <div className="spacer" />
+            <button className="btn btn-sm btn-danger" onClick={() => remove(i)}>Remove</button>
+          </div>
+          <textarea value={q.query} onChange={(e) => update(i, e.target.value)} style={{ minHeight: 54, fontFamily: 'ui-monospace, monospace', fontSize: '.85rem' }} placeholder="PubMed query (supports MeSH, field tags, boolean)" />
+        </div>
+      ))}
+      <button className="btn btn-ghost btn-sm" onClick={add}>+ Add a query</button>
+
+      <label style={{ marginTop: '1rem' }}>Weekly monitoring query (used after the tool is live)</label>
+      <textarea value={surveil} onChange={(e) => { setSurveil(e.target.value); setSaved(false); }} style={{ minHeight: 48, fontFamily: 'ui-monospace, monospace', fontSize: '.85rem' }} />
+      {counts[surveil.trim()] !== undefined && <p className="hint">Monitoring query currently matches {counts[surveil.trim()].toLocaleString()} PubMed results.</p>}
+    </div>
+  );
+}
+
 // ---------------- Stage 2: Evidence ----------------
 function EvidencePanel({ project }) {
   const [evidence, setEvidence] = useState([]);
@@ -232,9 +314,11 @@ function EvidencePanel({ project }) {
 
   return (
     <>
+      <SearchQueryEditor project={project} />
+
       <div className="card">
         <h3>Literature scan</h3>
-        <p className="muted">SDMLab builds PubMed queries for values, preferences, risks, benefits, effectiveness, and guidelines, screens the abstracts, and flags relevant ones. You review every flagged abstract: include it as a citable source or dismiss it.</p>
+        <p className="muted">SDMLab searches PubMed using the queries above, screens the abstracts, and flags relevant ones. You review every flagged abstract: include it as a citable source or dismiss it.</p>
         {error && <div className="error">{error}</div>}
         <div className="toolbar">
           <button className="btn" disabled={!!busy} onClick={startScan}>

@@ -41,6 +41,15 @@ function extract(xml, tag) {
   return m ? m[1] : '';
 }
 
+// Number of PubMed results a query would return (no fetch, no AI) -- lets
+// builders gauge how strict a query is before running the full scan.
+async function countResults(query) {
+  const params = new URLSearchParams({ db: 'pubmed', term: query, retmode: 'json', retmax: '0' });
+  const res = await eutilsFetch(`${EUTILS}/esearch.fcgi?${params}`);
+  const data = await res.json();
+  return Number(data.esearchresult?.count || 0);
+}
+
 async function fetchByIds(ids) {
   if (!ids.length) return [];
   const fetchRes = await eutilsFetch(`${EUTILS}/efetch.fcgi?db=pubmed&retmode=xml&rettype=abstract&id=${ids.join(',')}`);
@@ -90,4 +99,4 @@ async function search(query, { retmax = 25, mindate = null } = {}) {
   return fetchByIds(ids);
 }
 
-module.exports = { search, fetchByIds };
+module.exports = { search, fetchByIds, countResults };

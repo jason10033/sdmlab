@@ -212,6 +212,7 @@ addColumn('projects', "repo_published INTEGER NOT NULL DEFAULT 0");
 addColumn('projects', "repo_published_at DATETIME");
 addColumn('projects', "mod_reasons TEXT");
 addColumn('projects', "mod_note TEXT");
+addColumn('projects', "search_queries TEXT");
 addColumn('users', "institution TEXT");
 addColumn('users', "title TEXT");
 
