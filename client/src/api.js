@@ -79,7 +79,7 @@ export const api = {
   restoreVersion: (id, v) => req('POST', `/projects/${id}/versions/${v}/restore`),
   getAnalytics: (id) => req('GET', `/projects/${id}/analytics`),
 
-  // Reviews
+  // Evaluations
   createInvites: (id, d) => req('POST', `/projects/${id}/invites`, d),
   getInvites: (id) => req('GET', `/projects/${id}/invites`),
   getFeedback: (id) => req('GET', `/projects/${id}/feedback`),
@@ -90,6 +90,7 @@ export const api = {
   getPublicTool: (slug) => req('GET', `/public/tool/${slug}`),
   publicEvent: (slug, event) => req('POST', `/public/tool/${slug}/event`, { event }),
   publicFeedback: (slug, d) => req('POST', `/public/tool/${slug}/feedback`, d),
+  publicEvaluation: (slug, d) => req('POST', `/public/tool/${slug}/evaluation`, d),
 
   // Surveillance dashboard
   getDashboard: () => req('GET', '/surveillance'),

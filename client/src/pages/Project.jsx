@@ -5,16 +5,6 @@ import ToolView, { GuideSection } from '../components/ToolView.jsx';
 import ToolEditor from '../components/ToolEditor.jsx';
 import { downloadExport } from '../api.js';
 
-const STAGES = [
-  { id: 'intake', label: '1. Intake materials' },
-  { id: 'evidence', label: '2. Evidence scan' },
-  { id: 'interview', label: '3. Population interview' },
-  { id: 'draft', label: '4. Draft tool' },
-  { id: 'provider_review', label: '5. Provider iteration' },
-  { id: 'patient_review', label: '6. Patient iteration' },
-  { id: 'live', label: '7. Live + monitoring' },
-];
-
 export default function Project() {
   const { id } = useParams();
   const [project, setProject] = useState(null);
@@ -44,8 +34,10 @@ export default function Project() {
 
   if (!project) return <div className="page"><p className="muted">Loading...</p></div>;
 
-  const stageIdx = STAGES.findIndex((s) => s.id === project.stage);
-  const nextStage = STAGES[stageIdx + 1]?.id;
+  const STAGES = project.stages;
+  const stageIdx = STAGES.indexOf(project.stage);
+  const nextStage = STAGES[stageIdx + 1];
+  const info = project.stageInfo;
 
   return (
     <div className="page">
@@ -55,19 +47,19 @@ export default function Project() {
           <p className="muted" style={{ margin: 0 }}>{project.decision}</p>
         </div>
         <div className="spacer" />
-        {project.stage === 'live'
-          ? <a className="btn btn-secondary" href={`#/t/${project.slug}`} target="_blank" rel="noreferrer">Open live tool</a>
-          : nextStage && <button className="btn" onClick={() => advance(nextStage)}>Advance to {STAGES[stageIdx + 1].label.slice(3)}</button>}
+        {(project.stage === 'beta' || project.stage === 'production') &&
+          <a className="btn btn-secondary" href={`#/t/${project.slug}`} target="_blank" rel="noreferrer">Open tool</a>}
+        {nextStage && <button className="btn" onClick={() => advance(nextStage)}>Advance to {info[nextStage].short}</button>}
       </div>
 
       <div className="stepper">
         {STAGES.map((s, i) => (
           <div
-            key={s.id}
-            className={`step ${i < stageIdx ? 'done' : ''} ${s.id === viewStage ? 'current' : ''}`}
-            onClick={() => setViewStage(s.id)}
+            key={s}
+            className={`step ${i < stageIdx ? 'done' : ''} ${s === viewStage ? 'current' : ''}`}
+            onClick={() => setViewStage(s)}
           >
-            <span className="dot" /> {s.label}
+            <span className="dot" /> {i + 1}. {info[s].short}
           </div>
         ))}
       </div>
@@ -75,13 +67,22 @@ export default function Project() {
       {error && <div className="error">{error}</div>}
       {gateInfo && <GatePrompt gateInfo={gateInfo} onOverride={(note) => advance(gateInfo.stage, true, note)} onCancel={() => setGateInfo(null)} />}
 
-      {viewStage === 'intake' && <IntakePanel project={project} />}
+      {info[viewStage] && (
+        <div className="ipdas-panel no-print">
+          <h3>{info[viewStage].label}</h3>
+          <p style={{ margin: '.2rem 0' }}>{info[viewStage].summary}</p>
+          <p className="ipdas-note">{info[viewStage].ipdas}</p>
+          <ul className="checklist-ipdas">{info[viewStage].checklist.map((c, i) => <li key={i}>{c}</li>)}</ul>
+        </div>
+      )}
+
+      {viewStage === 'scope' && <IntakePanel project={project} />}
       {viewStage === 'evidence' && <EvidencePanel project={project} />}
-      {viewStage === 'interview' && <InterviewPanel project={project} onSaved={load} />}
-      {viewStage === 'draft' && <DraftPanel project={project} onChange={load} />}
-      {viewStage === 'provider_review' && <ReviewPanel project={project} audience="provider" target={project.provider_target} />}
-      {viewStage === 'patient_review' && <ReviewPanel project={project} audience="patient" target={project.patient_target} />}
-      {viewStage === 'live' && <LivePanel project={project} />}
+      {viewStage === 'design' && <InterviewPanel project={project} onSaved={load} />}
+      {viewStage === 'prototype' && <DraftPanel project={project} onChange={load} />}
+      {viewStage === 'alpha' && <AlphaPanel project={project} />}
+      {viewStage === 'beta' && <BetaPanel project={project} />}
+      {viewStage === 'production' && <ProductionPanel project={project} />}
 
       <RevisionLog projectId={project.id} stage={viewStage} />
     </div>
@@ -453,72 +454,143 @@ export function TrainingCompanion({ training }) {
   );
 }
 
-// ---------------- Stages 5-6: Review iterations ----------------
-function ReviewPanel({ project, audience, target }) {
+// ---------------- Shared: eval links + evaluation list ----------------
+function EvalLinks({ project, audience, stage }) {
   const [invites, setInvites] = useState([]);
-  const [feedback, setFeedback] = useState([]);
   const [count, setCount] = useState(5);
   const [copied, setCopied] = useState('');
 
   const load = useCallback(async () => {
-    setInvites((await api.getInvites(project.id)).filter((i) => i.audience === audience));
-    setFeedback((await api.getFeedback(project.id)).filter((f) => f.audience === audience));
-  }, [project.id, audience]);
+    setInvites((await api.getInvites(project.id)).filter((i) => i.audience === audience && (i.stage || 'alpha') === stage));
+  }, [project.id, audience, stage]);
   useEffect(() => { load(); }, [load]);
 
   const base = `${window.location.origin}${window.location.pathname}#/review/`;
+  return (
+    <div>
+      <div className="toolbar">
+        <input type="number" min="1" max="25" value={count} onChange={(e) => setCount(e.target.value)} style={{ width: 80 }} />
+        <button className="btn btn-sm" onClick={() => api.createInvites(project.id, { audience, count: Number(count), stage }).then(load)}>
+          Create {audience} evaluation links
+        </button>
+      </div>
+      {invites.length > 0 && (
+        <table>
+          <thead><tr><th>Single-use link</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {invites.map((inv) => (
+              <tr key={inv.id}>
+                <td className="mono">{base}{inv.token}</td>
+                <td>{inv.completed_at ? <span className="badge badge-live">done</span> : <span className="badge badge-muted">open</span>}</td>
+                <td><button className="btn btn-sm btn-ghost" onClick={() => { navigator.clipboard.writeText(base + inv.token); setCopied(inv.id); }}>{copied === inv.id ? 'Copied' : 'Copy'}</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function EvalList({ evals }) {
+  if (evals.length === 0) return <p className="muted">No evaluations yet.</p>;
+  return evals.map((f) => (
+    <details className="evidence-item" key={f.id}>
+      <summary>
+        <span className={`badge ${f.audience === 'provider' ? 'badge-stage' : 'badge-muted'}`}>{f.audience}</span>{' '}
+        <span className="badge badge-muted">{f.source}</span>{' '}
+        {new Date(f.created_at).toLocaleString()} {f.comment ? `- "${f.comment.slice(0, 70)}"` : ''}
+      </summary>
+      {f.instruments && Object.entries(f.instruments).map(([inst, answers]) => (
+        inst === 'open'
+          ? <p key={inst}><strong>Open questions:</strong> {Object.entries(answers).map(([k, v]) => `${k}=${v}`).join('; ')}</p>
+          : <p key={inst}><strong>{inst}:</strong> {Object.entries(answers).map(([k, v]) => `${k}=${v}`).join(', ')}</p>
+      ))}
+      {f.comment && <p><strong>Comment:</strong> {f.comment}</p>}
+    </details>
+  ));
+}
+
+// ---------------- Stage 5: Alpha testing (providers + patients) ----------------
+function AlphaPanel({ project }) {
+  const [evals, setEvals] = useState([]);
+  const load = useCallback(async () => setEvals((await api.getFeedback(project.id)).filter((f) => f.stage === 'alpha')), [project.id]);
+  useEffect(() => { load(); }, [load]);
+
+  const providerN = evals.filter((e) => e.audience === 'provider').length;
+  const patientN = evals.filter((e) => e.audience === 'patient').length;
 
   return (
     <>
       <div className="card">
-        <h3>{audience === 'provider' ? 'Provider iteration' : 'Patient iteration'} ({feedback.length}/{target} structured reviews)</h3>
+        <h3>Alpha testing</h3>
         <p className="muted">
-          {audience === 'provider'
-            ? 'Send one-time review links to clinicians. Each reviewer sees the current draft and answers a short structured questionnaire. Revise and regenerate between rounds; every version is kept.'
-            : 'Send one-time review links to patients or community members. Responses are anonymous; links are single-use.'}
+          Controlled usability and comprehension testing. Send single-use evaluation links to providers and patients.
+          Each reviewer sees the current draft and completes validated measures (providers: IPDAS quality criteria; patients: SURE and Preparation for Decision Making).
         </p>
-        <div className="toolbar">
-          <input type="number" min="1" max="25" value={count} onChange={(e) => setCount(e.target.value)} style={{ width: 80 }} />
-          <button className="btn" onClick={() => api.createInvites(project.id, { audience, count: Number(count) }).then(load)}>
-            Create review links
-          </button>
+        <div className="row">
+          <div>
+            <h4>Providers ({providerN}/{project.provider_target})</h4>
+            <EvalLinks project={project} audience="provider" stage="alpha" />
+          </div>
+          <div>
+            <h4>Patients ({patientN}/{project.patient_target})</h4>
+            <EvalLinks project={project} audience="patient" stage="alpha" />
+          </div>
         </div>
-        {invites.length > 0 && (
-          <table>
-            <thead><tr><th>Link</th><th>Status</th><th></th></tr></thead>
-            <tbody>
-              {invites.map((inv) => (
-                <tr key={inv.id}>
-                  <td className="mono">{base}{inv.token}</td>
-                  <td>{inv.completed_at ? <span className="badge badge-live">completed</span> : <span className="badge badge-muted">open</span>}</td>
-                  <td>
-                    <button className="btn btn-sm btn-ghost" onClick={() => { navigator.clipboard.writeText(base + inv.token); setCopied(inv.id); }}>
-                      {copied === inv.id ? 'Copied' : 'Copy'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <p className="hint" style={{ marginTop: '.8rem' }}>Revise the tool in the Prototype stage between rounds; every version is kept. Advance to Beta once both targets are met.</p>
       </div>
 
       <div className="card">
-        <h3>Feedback received</h3>
-        {feedback.length === 0 ? <p className="muted">No reviews yet.</p> : feedback.map((f) => (
-          <details className="evidence-item" key={f.id}>
-            <summary>{new Date(f.created_at).toLocaleString()} {f.comment ? `- "${f.comment.slice(0, 80)}"` : ''}</summary>
-            {f.responses && Object.entries(f.responses).map(([k, v]) => <p key={k}><strong>{k}:</strong> {String(v)}</p>)}
-            {f.comment && <p><strong>Comment:</strong> {f.comment}</p>}
-          </details>
-        ))}
+        <h3>Alpha evaluations received ({evals.length})</h3>
+        <EvalList evals={evals} />
       </div>
     </>
   );
 }
 
-// ---------------- Stage 7: Live ----------------
-function LivePanel({ project }) {
+// ---------------- Stage 6: Beta (field testing) ----------------
+function BetaPanel({ project }) {
+  const [evals, setEvals] = useState([]);
+  const load = useCallback(async () => setEvals((await api.getFeedback(project.id)).filter((f) => f.stage === 'beta')), [project.id]);
+  useEffect(() => { load(); }, [load]);
+
+  const pathUrl = `${window.location.origin}${window.location.pathname}#/t/${project.slug}`;
+  const subUrl = `https://${project.slug}.sdmlab.com`;
+  const isLive = project.stage === 'beta' || project.stage === 'production';
+
+  return (
+    <>
+      <div className="card">
+        <h3>Beta field testing ({evals.length}/{project.beta_target} evaluations)</h3>
+        <p className="muted">
+          Field-test the tool with real users on the live website. The tool shows a "field testing" banner and collects
+          validated evaluations (SURE, Preparation for Decision Making) anonymously from anyone who uses it.
+        </p>
+        {isLive ? (
+          <>
+            <p>Open link to share for field testing:</p>
+            <p className="mono">{pathUrl}</p>
+            <p className="muted">Once you point DNS for sdmlab.com, this tool will also be reachable at its own subdomain:</p>
+            <p className="mono">{subUrl}</p>
+            <div className="toolbar">
+              <button className="btn btn-sm btn-secondary" onClick={() => navigator.clipboard.writeText(pathUrl)}>Copy link</button>
+              <a className="btn btn-sm" href={`#/t/${project.slug}`} target="_blank" rel="noreferrer">Open tool</a>
+            </div>
+          </>
+        ) : <p className="notice">Advance to Beta to publish the tool for field testing.</p>}
+      </div>
+
+      <div className="card">
+        <h3>Beta evaluations received ({evals.length})</h3>
+        <EvalList evals={evals} />
+      </div>
+    </>
+  );
+}
+
+// ---------------- Stage 7: Production (live + monitoring) ----------------
+function ProductionPanel({ project }) {
   const [dash, setDash] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [running, setRunning] = useState(false);
@@ -537,8 +609,8 @@ function LivePanel({ project }) {
   return (
     <>
       <div className="card">
-        <h3>Live tool</h3>
-        {project.stage === 'live' ? (
+        <h3>Production tool</h3>
+        {project.stage === 'production' ? (
           <>
             <p>Share this link with providers and patients:</p>
             <p className="mono">{liveUrl}</p>
@@ -547,7 +619,7 @@ function LivePanel({ project }) {
               <a className="btn btn-sm" href={`#/t/${project.slug}`} target="_blank" rel="noreferrer">Open</a>
             </div>
           </>
-        ) : <p className="muted">The tool is not live yet. Complete the patient iteration and advance to Live.</p>}
+        ) : <p className="muted">Not in production yet. Complete beta field testing and advance to Production.</p>}
       </div>
 
       <div className="card">
@@ -571,7 +643,7 @@ function LivePanel({ project }) {
           <table style={{ maxWidth: 480 }}>
             <thead><tr><th>Event</th><th>Total</th><th>Last 30 days</th></tr></thead>
             <tbody>
-              {['view', 'complete', 'print', 'guide_view'].map((ev) => {
+              {['view', 'complete', 'print', 'guide_view', 'share'].map((ev) => {
                 const row = analytics.totals.find((t) => t.event === ev);
                 return <tr key={ev}><td>{ev.replace('_', ' ')}</td><td>{row?.total || 0}</td><td>{row?.last30 || 0}</td></tr>;
               })}
@@ -579,7 +651,7 @@ function LivePanel({ project }) {
           </table>
         )}
         <div className="toolbar" style={{ marginTop: '.8rem' }}>
-          <button className="btn btn-sm btn-secondary" onClick={() => downloadExport(`/projects/${project.id}/export/feedback.csv`, `${project.slug}-feedback.csv`)}>Export feedback CSV</button>
+          <button className="btn btn-sm btn-secondary" onClick={() => downloadExport(`/projects/${project.id}/export/feedback.csv`, `${project.slug}-feedback.csv`)}>Export evaluations CSV</button>
           <button className="btn btn-sm btn-secondary" onClick={() => downloadExport(`/projects/${project.id}/export/analytics.csv`, `${project.slug}-analytics.csv`)}>Export analytics CSV</button>
           <button className="btn btn-sm btn-secondary" onClick={() => downloadExport(`/projects/${project.id}/export/project.json`, `${project.slug}-export.json`)}>Export full project JSON</button>
         </div>

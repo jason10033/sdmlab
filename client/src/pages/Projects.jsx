@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 
 const STAGE_LABELS = {
-  intake: 'Intake', evidence: 'Evidence scan', interview: 'Population interview',
-  draft: 'Draft', provider_review: 'Provider iteration', patient_review: 'Patient iteration', live: 'Live',
+  scope: 'Scope', evidence: 'Evidence', design: 'Design', prototype: 'Prototype',
+  alpha: 'Alpha testing', beta: 'Beta testing', production: 'Production',
 };
 
 export default function Projects() {
@@ -75,14 +75,14 @@ export default function Projects() {
           <div className="card">
             <div className="toolbar" style={{ marginBottom: '.3rem' }}>
               <h3 style={{ margin: 0 }}>{p.title}</h3>
-              <span className={`badge ${p.stage === 'live' ? 'badge-live' : 'badge-stage'}`}>{STAGE_LABELS[p.stage]}</span>
+              <span className={`badge ${p.stage === 'production' ? 'badge-live' : p.stage === 'beta' ? 'badge-beta' : 'badge-stage'}`}>{STAGE_LABELS[p.stage]}</span>
               {p.stats.surveillanceNew > 0 && <span className="badge badge-warn">{p.stats.surveillanceNew} new surveillance flags</span>}
               <div className="spacer" />
               <span className="muted">v{p.stats.versions || 0}</span>
             </div>
             <p className="muted">{p.decision}</p>
             <p className="muted">
-              Provider reviews {p.stats.provider}/{p.provider_target} | Patient reviews {p.stats.patient}/{p.patient_target}
+              Alpha: providers {p.stats.provider}/{p.provider_target}, patients {p.stats.patient}/{p.patient_target} | Beta evals {p.stats.betaEvals}/{p.beta_target}
             </p>
           </div>
         </Link>

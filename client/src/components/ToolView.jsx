@@ -177,9 +177,33 @@ export function CitationsSection({ content }) {
   );
 }
 
+// Compute which options the patient's answers favor, most-favored first.
+export function computeLeaning(content, answers) {
+  const counts = Object.fromEntries(content.options.map((o) => [o.id, 0]));
+  let answered = 0;
+  for (const q of content.valuesQuestions) {
+    const idx = answers[q.id];
+    if (idx === undefined) continue;
+    answered++;
+    for (const fav of q.answers[idx]?.favors || []) {
+      if (fav in counts) counts[fav] += 1;
+    }
+  }
+  const ranked = content.options
+    .map((o) => ({ option: o, count: counts[o.id] }))
+    .sort((a, b) => b.count - a.count);
+  const notes = content.valuesQuestions
+    .map((q) => (answers[q.id] !== undefined ? q.answers[answers[q.id]]?.note : null))
+    .filter((n) => n && n.trim());
+  return { counts, answered, ranked, notes };
+}
+
 // Full patient-facing render: one scrolling page with interactive values clarification.
-export default function ToolView({ content, footer, onAllAnswered }) {
-  const [answers, setAnswers] = useState({});
+// answers/setAnswers can be controlled by the parent (so a summary can read them).
+export default function ToolView({ content, footer, onAllAnswered, answers: answersProp, setAnswers: setAnswersProp }) {
+  const [answersState, setAnswersState] = useState({});
+  const answers = answersProp !== undefined ? answersProp : answersState;
+  const setAnswers = setAnswersProp || setAnswersState;
   const firedComplete = useRef(false);
 
   useEffect(() => {

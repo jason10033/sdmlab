@@ -2,8 +2,39 @@ import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import ToolView, { GuideSection } from '../components/ToolView.jsx';
+import DecisionSummary from '../components/DecisionSummary.jsx';
+import EvalForm from '../components/EvalForm.jsx';
 import { TrainingCompanion } from './Project.jsx';
 
+// Anonymous field-testing evaluation shown during beta.
+function BetaEval({ slug, evaluation }) {
+  const [audience, setAudience] = useState('patient');
+  const [responses, setResponses] = useState({});
+  const [comment, setComment] = useState('');
+  const [sent, setSent] = useState(false);
+  const bundle = evaluation[audience];
+
+  if (sent) return <div className="success">Thank you. Your evaluation helps the clinical team improve this tool before it is finalized.</div>;
+
+  return (
+    <div className="card" style={{ borderColor: 'var(--accent)', borderWidth: 2 }}>
+      <h2>Help us improve this tool</h2>
+      <p className="muted">This tool is in field testing. Your anonymous evaluation is very helpful. No personal information is collected.</p>
+      <div className="pill-list">
+        <button type="button" className={`answer-btn ${audience === 'patient' ? 'selected' : ''}`} onClick={() => { setAudience('patient'); setResponses({}); }}>I am a patient / community member</button>
+        <button type="button" className={`answer-btn ${audience === 'provider' ? 'selected' : ''}`} onClick={() => { setAudience('provider'); setResponses({}); }}>I am a provider</button>
+      </div>
+      <EvalForm instruments={bundle.instruments} openQuestions={bundle.openQuestions} value={responses} onChange={setResponses} />
+      <label>Anything else?</label>
+      <textarea value={comment} onChange={(e) => setComment(e.target.value)} />
+      <div style={{ marginTop: '.8rem' }}>
+        <button className="btn" onClick={async () => { await api.publicEvaluation(slug, { audience, instruments: responses, comment }); setSent(true); }}>Submit evaluation</button>
+      </div>
+    </div>
+  );
+}
+
+// Quick anonymous rating (production).
 function FeedbackFooter({ slug }) {
   const [audience, setAudience] = useState('patient');
   const [rating, setRating] = useState(0);
@@ -14,7 +45,7 @@ function FeedbackFooter({ slug }) {
   if (sent) return <div className="success no-print">Thank you. Your feedback goes to the clinical team that maintains this tool.</div>;
 
   return (
-    <div className="card no-print" style={{ borderColor: 'var(--accent)' }}>
+    <div className="card no-print" style={{ borderColor: 'var(--primary)' }}>
       <h2>How was this tool?</h2>
       <p className="muted">Anonymous. No personal information is collected or stored.</p>
       <div className="pill-list">
@@ -45,11 +76,14 @@ function FeedbackFooter({ slug }) {
   );
 }
 
-export default function PublicTool() {
-  const { slug } = useParams();
+export default function PublicTool({ slugOverride }) {
+  const params = useParams();
+  const slug = slugOverride || params.slug;
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [view, setView] = useState('tool');
+  const [answers, setAnswers] = useState({});
+  const [extraQuestions, setExtraQuestions] = useState(['']);
 
   useEffect(() => {
     api.getPublicTool(slug).then(setData).catch((err) => setError(err.message));
@@ -58,12 +92,22 @@ export default function PublicTool() {
   if (error) return <div className="tool-shell"><div className="error">{error}</div></div>;
   if (!data) return <div className="tool-shell"><p className="muted">Loading...</p></div>;
 
+  const views = [
+    ['tool', 'Decision tool'],
+    ['summary', 'Share with provider'],
+    ['guide', 'Provider conversation guide'],
+    ['training', 'Provider training'],
+  ];
+
   return (
     <div className="tool-shell">
+      {data.isBeta && <div className="beta-banner no-print">This tool is in field testing (beta). We welcome your feedback to help finalize it.</div>}
+
       <div className="toolbar no-print">
-        <button className={`btn btn-sm ${view === 'tool' ? '' : 'btn-ghost'}`} onClick={() => setView('tool')}>Decision tool</button>
-        <button className={`btn btn-sm ${view === 'guide' ? '' : 'btn-ghost'}`} onClick={() => { setView('guide'); api.publicEvent(slug, 'guide_view').catch(() => {}); }}>Provider conversation guide</button>
-        <button className={`btn btn-sm ${view === 'training' ? '' : 'btn-ghost'}`} onClick={() => setView('training')}>Provider training</button>
+        {views.map(([v, label]) => (
+          <button key={v} className={`btn btn-sm ${view === v ? '' : 'btn-ghost'}`}
+            onClick={() => { setView(v); if (v === 'guide') api.publicEvent(slug, 'guide_view').catch(() => {}); }}>{label}</button>
+        ))}
         <div className="spacer" />
         <button className="btn btn-sm btn-secondary" onClick={() => { api.publicEvent(slug, 'print').catch(() => {}); window.print(); }}>Print / save PDF</button>
       </div>
@@ -71,10 +115,33 @@ export default function PublicTool() {
       {view === 'tool' && (
         <ToolView
           content={data.content}
-          footer={<FeedbackFooter slug={slug} />}
+          answers={answers}
+          setAnswers={setAnswers}
           onAllAnswered={() => api.publicEvent(slug, 'complete').catch(() => {})}
+          footer={
+            <div className="no-print" style={{ marginTop: '1.5rem' }}>
+              <div className="card" style={{ background: 'var(--primary-soft)', textAlign: 'center' }}>
+                <h3>Ready to talk to your provider?</h3>
+                <p>Build a one-page summary of where you are leaning and what you want to discuss.</p>
+                <button className="btn" onClick={() => { setView('summary'); window.scrollTo(0, 0); }}>Build my summary</button>
+              </div>
+              {data.isBeta && data.evaluation && <BetaEval slug={slug} evaluation={data.evaluation} />}
+              {!data.isBeta && <FeedbackFooter slug={slug} />}
+            </div>
+          }
         />
       )}
+
+      {view === 'summary' && (
+        <DecisionSummary
+          content={data.content}
+          answers={answers}
+          extraQuestions={extraQuestions}
+          setExtraQuestions={setExtraQuestions}
+          onShare={() => api.publicEvent(slug, 'share').catch(() => {})}
+        />
+      )}
+
       {view === 'guide' && (
         <>
           <h1>Conversation guide</h1>
@@ -82,9 +149,9 @@ export default function PublicTool() {
           <GuideSection content={data.content} />
         </>
       )}
-      {view === 'training' && (
-        <div className="card"><TrainingCompanion training={data.training} /></div>
-      )}
+
+      {view === 'training' && <div className="card"><TrainingCompanion training={data.training} /></div>}
+
       <p className="muted" style={{ textAlign: 'center', marginTop: '2rem' }}>
         Built with SDMLab. Version {data.version}. This tool supports, and does not replace, a conversation with your healthcare provider.
       </p>

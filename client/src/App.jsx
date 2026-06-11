@@ -13,6 +13,22 @@ function authed() {
   return !!localStorage.getItem('sdmlab_token');
 }
 
+// When served at <slug>.sdmlab.com, show that tool directly. Reserved
+// subdomains (www, app, api) and non-sdmlab.com hosts fall through to the app.
+const RESERVED_SUBDOMAINS = ['www', 'app', 'api', 'sdmlab'];
+function toolSlugFromHost() {
+  const host = window.location.hostname;
+  if (!host.endsWith('.sdmlab.com')) return null;
+  const sub = host.slice(0, -'.sdmlab.com'.length);
+  if (!sub || sub.includes('.') || RESERVED_SUBDOMAINS.includes(sub)) return null;
+  return sub;
+}
+
+function SubdomainTool({ slug }) {
+  // Render the public tool for this subdomain regardless of path.
+  return <PublicTool slugOverride={slug} />;
+}
+
 function RequireAuth({ children }) {
   if (!authed()) return <Navigate to="/login" replace />;
   return children;
@@ -45,6 +61,14 @@ function Nav() {
 }
 
 export default function App() {
+  const subdomainSlug = toolSlugFromHost();
+  if (subdomainSlug) {
+    return (
+      <HashRouter>
+        <SubdomainTool slug={subdomainSlug} />
+      </HashRouter>
+    );
+  }
   return (
     <HashRouter>
       <Nav />

@@ -69,7 +69,7 @@ router.post('/:id/materials/file', getProject, upload.single('file'), (req, res)
   const info = db.prepare('INSERT INTO materials (project_id, kind, label, file_path, mime) VALUES (?, ?, ?, ?, ?)')
     .run(req.project.id, 'file', req.file.originalname, req.file.path, req.file.mimetype);
   processMaterial(info.lastInsertRowid);
-  logRevision(req.project.id, 'intake', 'material_added', req.file.originalname, req.user.id);
+  logRevision(req.project.id, 'scope', 'material_added', req.file.originalname, req.user.id);
   res.json({ id: info.lastInsertRowid });
 });
 
@@ -79,7 +79,7 @@ router.post('/:id/materials/url', getProject, (req, res) => {
   const info = db.prepare('INSERT INTO materials (project_id, kind, label, url) VALUES (?, ?, ?, ?)')
     .run(req.project.id, 'url', url, url);
   processMaterial(info.lastInsertRowid);
-  logRevision(req.project.id, 'intake', 'material_added', url, req.user.id);
+  logRevision(req.project.id, 'scope', 'material_added', url, req.user.id);
   res.json({ id: info.lastInsertRowid });
 });
 
@@ -88,7 +88,7 @@ router.post('/:id/materials/text', getProject, (req, res) => {
   if (!text) return res.status(400).json({ error: 'text required' });
   const info = db.prepare("INSERT INTO materials (project_id, kind, label, content_text, status) VALUES (?, 'text', ?, ?, 'ready')")
     .run(req.project.id, label || 'Pasted text', text);
-  logRevision(req.project.id, 'intake', 'material_added', label || 'Pasted text', req.user.id);
+  logRevision(req.project.id, 'scope', 'material_added', label || 'Pasted text', req.user.id);
   res.json({ id: info.lastInsertRowid });
 });
 

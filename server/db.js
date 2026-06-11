@@ -41,7 +41,7 @@ db.exec(`
     title            TEXT NOT NULL,
     slug             TEXT NOT NULL UNIQUE,
     decision         TEXT NOT NULL,
-    stage            TEXT NOT NULL DEFAULT 'intake',
+    stage            TEXT NOT NULL DEFAULT 'scope',
     pubmed_query     TEXT,
     interview_json   TEXT,
     provider_target  INTEGER NOT NULL DEFAULT 5,
@@ -184,6 +184,45 @@ db.exec(`
   );
 
   INSERT OR IGNORE INTO orgs (id, name) VALUES (1, 'NYC STI/HIV Prevention Training Center');
+`);
+
+// ---------------------------------------------------------------------------
+// Migrations (idempotent; safe to run on every startup)
+// ---------------------------------------------------------------------------
+
+// 1. Map legacy stage names onto the IPDAS development model.
+db.exec(`
+  UPDATE projects SET stage = 'scope'      WHERE stage = 'intake';
+  UPDATE projects SET stage = 'design'     WHERE stage = 'interview';
+  UPDATE projects SET stage = 'prototype'  WHERE stage = 'draft';
+  UPDATE projects SET stage = 'alpha'      WHERE stage IN ('provider_review', 'patient_review');
+  UPDATE projects SET stage = 'production' WHERE stage = 'live';
+`);
+
+// 2. Add columns that may not exist on older databases.
+function addColumn(table, def) {
+  try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${def}`); } catch (e) { /* already exists */ }
+}
+addColumn('review_invites', "stage TEXT");
+addColumn('projects', "beta_at DATETIME");
+addColumn('projects', "beta_target INTEGER NOT NULL DEFAULT 10");
+
+// 3. Unified evaluations table: instrument-based evals from invite links
+//    (alpha) and in-tool field testing (beta), with validated-scale data.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS evaluations (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id  INTEGER NOT NULL,
+    stage       TEXT NOT NULL,
+    audience    TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    invite_id   INTEGER,
+    instruments TEXT,
+    comment     TEXT,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (invite_id) REFERENCES review_invites(id) ON DELETE SET NULL
+  );
 `);
 
 module.exports = db;

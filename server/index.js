@@ -24,14 +24,15 @@ app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 
 const projects = require('./routes/projects');
+const reviews = require('./routes/reviews');
 
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/projects', projects.router);
 app.use('/api/projects', require('./routes/materials'));
 app.use('/api/projects', require('./routes/evidence'));
 app.use('/api/projects', require('./routes/generate'));
-app.use('/api/projects', require('./routes/reviews'));
-app.use('/api', require('./routes/reviews')); // exposes /api/review/:token (public)
+app.use('/api/projects', reviews.router);
+app.use('/api', reviews.router); // exposes /api/review/:token (public)
 app.use('/api/public', require('./routes/public'));
 app.use('/api/surveillance', require('./routes/surveillance'));
 

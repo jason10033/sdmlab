@@ -2,11 +2,10 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../auth');
 const { INTERVIEW_QUESTIONS } = require('../services/generator');
+const { STAGES, STAGE_INFO } = require('../ipdas');
 
 const router = express.Router();
 router.use(requireAuth);
-
-const STAGES = ['intake', 'evidence', 'interview', 'draft', 'provider_review', 'patient_review', 'live'];
 
 function slugify(title) {
   const base = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'tool';
@@ -22,13 +21,14 @@ function logRevision(projectId, stage, action, note, userId) {
 }
 
 function projectStats(id) {
-  const provider = db.prepare("SELECT COUNT(*) AS n FROM review_feedback WHERE project_id = ? AND audience = 'provider'").get(id).n;
-  const patient = db.prepare("SELECT COUNT(*) AS n FROM review_feedback WHERE project_id = ? AND audience = 'patient'").get(id).n;
+  const provider = db.prepare("SELECT COUNT(*) AS n FROM evaluations WHERE project_id = ? AND audience = 'provider' AND stage = 'alpha'").get(id).n;
+  const patient = db.prepare("SELECT COUNT(*) AS n FROM evaluations WHERE project_id = ? AND audience = 'patient' AND stage = 'alpha'").get(id).n;
+  const betaEvals = db.prepare("SELECT COUNT(*) AS n FROM evaluations WHERE project_id = ? AND stage = 'beta'").get(id).n;
   const versions = db.prepare('SELECT COUNT(*) AS n FROM tool_versions WHERE project_id = ?').get(id).n;
   const materials = db.prepare("SELECT COUNT(*) AS n FROM materials WHERE project_id = ? AND status = 'ready'").get(id).n;
   const evidenceIncluded = db.prepare("SELECT COUNT(*) AS n FROM evidence WHERE project_id = ? AND status = 'included'").get(id).n;
   const surveillanceNew = db.prepare("SELECT COUNT(*) AS n FROM surveillance_items WHERE project_id = ? AND status = 'new'").get(id).n;
-  return { provider, patient, versions, materials, evidenceIncluded, surveillanceNew };
+  return { provider, patient, betaEvals, versions, materials, evidenceIncluded, surveillanceNew };
 }
 
 router.get('/', (req, res) => {
@@ -41,7 +41,7 @@ router.post('/', (req, res) => {
   if (!title || !decision) return res.status(400).json({ error: 'title and decision required' });
   const info = db.prepare('INSERT INTO projects (org_id, title, slug, decision, created_by) VALUES (?, ?, ?, ?, ?)')
     .run(req.user.org_id, title, slugify(title), decision, req.user.id);
-  logRevision(info.lastInsertRowid, 'intake', 'created', `Project created: ${title}`, req.user.id);
+  logRevision(info.lastInsertRowid, 'scope', 'created', `Project created: ${title}`, req.user.id);
   res.json(db.prepare('SELECT * FROM projects WHERE id = ?').get(info.lastInsertRowid));
 });
 
@@ -59,20 +59,22 @@ router.get('/:id', getProject, (req, res) => {
     interviewQuestions: INTERVIEW_QUESTIONS,
     stats: projectStats(req.project.id),
     stages: STAGES,
+    stageInfo: STAGE_INFO,
   });
 });
 
 router.put('/:id', getProject, (req, res) => {
-  const { title, decision, provider_target, patient_target } = req.body || {};
+  const { title, decision, provider_target, patient_target, beta_target } = req.body || {};
   db.prepare(`
     UPDATE projects SET
       title = COALESCE(?, title),
       decision = COALESCE(?, decision),
       provider_target = COALESCE(?, provider_target),
       patient_target = COALESCE(?, patient_target),
+      beta_target = COALESCE(?, beta_target),
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(title ?? null, decision ?? null, provider_target ?? null, patient_target ?? null, req.project.id);
+  `).run(title ?? null, decision ?? null, provider_target ?? null, patient_target ?? null, beta_target ?? null, req.project.id);
   res.json(db.prepare('SELECT * FROM projects WHERE id = ?').get(req.project.id));
 });
 
@@ -85,31 +87,41 @@ router.delete('/:id', getProject, (req, res) => {
 router.put('/:id/interview', getProject, (req, res) => {
   db.prepare('UPDATE projects SET interview_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
     .run(JSON.stringify(req.body || {}), req.project.id);
-  logRevision(req.project.id, 'interview', 'interview_saved', null, req.user.id);
+  logRevision(req.project.id, 'design', 'interview_saved', null, req.user.id);
   res.json({ ok: true });
 });
 
-// Lifecycle: advance (or move back) with gate checks; override requires a note.
+// Lifecycle: advance (or move back) with IPDAS gate checks; override requires a note.
 router.post('/:id/stage', getProject, (req, res) => {
   const { stage, note, override } = req.body || {};
   if (!STAGES.includes(stage)) return res.status(400).json({ error: 'Invalid stage' });
 
-  const stats = projectStats(req.project.id);
+  const p = req.project;
+  const stats = projectStats(p.id);
   const gates = [];
-  if (stage === 'provider_review' && stats.versions === 0) gates.push('Generate a draft tool before starting provider review.');
-  if (stage === 'patient_review' && stats.provider < req.project.provider_target) {
-    gates.push(`Provider iteration target not met (${stats.provider}/${req.project.provider_target} structured reviews).`);
+  if (stage === 'alpha' && stats.versions === 0) {
+    gates.push('Generate a draft (prototype) before alpha testing.');
   }
-  if (stage === 'live' && stats.patient < req.project.patient_target) {
-    gates.push(`Patient iteration target not met (${stats.patient}/${req.project.patient_target} reviews).`);
+  if (stage === 'beta') {
+    if (stats.provider < p.provider_target) gates.push(`Alpha provider target not met (${stats.provider}/${p.provider_target} provider evaluations).`);
+    if (stats.patient < p.patient_target) gates.push(`Alpha patient target not met (${stats.patient}/${p.patient_target} patient evaluations).`);
+  }
+  if (stage === 'production' && stats.betaEvals < p.beta_target) {
+    gates.push(`Beta field-testing target not met (${stats.betaEvals}/${p.beta_target} evaluations).`);
   }
   if (gates.length && !override) return res.status(409).json({ error: 'Gate not met', gates });
   if (gates.length && override && !note) return res.status(400).json({ error: 'Overriding a gate requires a note for the audit trail.' });
 
-  db.prepare(`UPDATE projects SET stage = ?, live_at = CASE WHEN ? = 'live' AND live_at IS NULL THEN CURRENT_TIMESTAMP ELSE live_at END, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-    .run(stage, stage, req.project.id);
-  logRevision(req.project.id, stage, gates.length ? 'stage_change_override' : 'stage_change',
-    note || `Moved to ${stage}`, req.user.id);
+  // Stamp first-entry timestamps for beta and production.
+  db.prepare(`
+    UPDATE projects SET stage = ?,
+      beta_at = CASE WHEN ? = 'beta' AND beta_at IS NULL THEN CURRENT_TIMESTAMP ELSE beta_at END,
+      live_at = CASE WHEN ? = 'production' AND live_at IS NULL THEN CURRENT_TIMESTAMP ELSE live_at END,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(stage, stage, stage, p.id);
+  logRevision(p.id, stage, gates.length ? 'stage_change_override' : 'stage_change',
+    note || `Moved to ${STAGE_INFO[stage].label}`, req.user.id);
   res.json({ ok: true, stage });
 });
 
@@ -140,20 +152,19 @@ function sendCsv(res, filename, header, rows) {
   res.send(lines.join('\r\n'));
 }
 
-// CSV of all structured review feedback plus anonymous in-tool feedback.
+// CSV of all evaluations (alpha + beta instruments) plus anonymous in-tool feedback.
 router.get('/:id/export/feedback.csv', getProject, (req, res) => {
-  const reviews = db.prepare('SELECT * FROM review_feedback WHERE project_id = ? ORDER BY created_at').all(req.project.id);
+  const evals = db.prepare('SELECT * FROM evaluations WHERE project_id = ? ORDER BY created_at').all(req.project.id);
   const publicFb = db.prepare('SELECT * FROM public_feedback WHERE project_id = ? ORDER BY created_at').all(req.project.id);
   const rows = [];
-  for (const r of reviews) {
-    const responses = r.responses ? JSON.parse(r.responses) : {};
-    rows.push(['structured_review', r.audience, r.created_at, '', '', JSON.stringify(responses), r.comment || '']);
+  for (const e of evals) {
+    rows.push(['evaluation', e.stage, e.audience, e.source, e.created_at, '', '', e.instruments || '{}', e.comment || '']);
   }
   for (const f of publicFb) {
-    rows.push(['in_tool', f.audience, f.created_at, f.rating ?? '', f.helped || '', '', f.comment || '']);
+    rows.push(['in_tool_rating', 'production', f.audience, 'in_tool', f.created_at, f.rating ?? '', f.helped || '', '', f.comment || '']);
   }
   sendCsv(res, `${req.project.slug}-feedback.csv`,
-    ['type', 'audience', 'created_at', 'rating', 'helped', 'responses_json', 'comment'], rows);
+    ['type', 'stage', 'audience', 'source', 'created_at', 'rating', 'helped', 'instruments_json', 'comment'], rows);
 });
 
 // CSV of aggregate analytics events.

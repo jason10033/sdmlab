@@ -37,7 +37,7 @@ router.post('/:id/generate', getProject, (req, res) => {
       const last = db.prepare('SELECT MAX(version) AS v FROM tool_versions WHERE project_id = ?').get(projectId).v || 0;
       db.prepare('INSERT INTO tool_versions (project_id, version, content_json, training_json, note) VALUES (?, ?, ?, ?, ?)')
         .run(projectId, last + 1, JSON.stringify(tool), JSON.stringify(training), note);
-      logRevision(projectId, 'draft', 'generated', `Version ${last + 1} generated`, null);
+      logRevision(projectId, 'prototype', 'generated', `Version ${last + 1} generated`, null);
       jobs.set(projectId, { status: 'done' });
     } catch (err) {
       console.error('Generation failed:', err);

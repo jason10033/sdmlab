@@ -68,7 +68,7 @@ async function scanProject(project) {
 }
 
 async function runAll() {
-  const live = db.prepare("SELECT * FROM projects WHERE stage = 'live'").all();
+  const live = db.prepare("SELECT * FROM projects WHERE stage = 'production'").all();
   const results = [];
   for (const project of live) {
     try {

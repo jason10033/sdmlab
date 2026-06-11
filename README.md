@@ -2,7 +2,19 @@
 
 Rapid development of shared decision-making (SDM) tools. A clinical team brings a decision, uploads existing materials, and SDMLab searches the literature, interviews the team about their population, and generates an IPDAS-structured decision aid in three formats (interactive patient tool, printable one-pager, provider conversation guide) plus a decision-specific training companion. Each tool moves through a managed lifecycle with human review gates, and live tools get weekly AI-triaged surveillance of PubMed and patient communities.
 
-## Lifecycle
+## Custom domain and per-tool subdomains (sdmlab.com)
+
+The app serves a tool directly when reached at `<slug>.sdmlab.com`. To enable that once you own sdmlab.com:
+
+1. In Render, add `sdmlab.com`, `www.sdmlab.com`, and a wildcard `*.sdmlab.com` as custom domains on the service.
+2. At your DNS provider, point the apex/`www` at Render and add a wildcard CNAME `*.sdmlab.com` to the Render hostname.
+3. No code change needed: the client reads the subdomain and loads that tool. Reserved subdomains (`www`, `app`, `api`) fall through to the builder app. The path form (`sdmlab.com/#/t/<slug>`) always works as a fallback.
+
+## Lifecycle (IPDAS development model)
+
+Scope -> Evidence -> Design -> Prototype -> Alpha -> Beta -> Production. Each stage shows IPDAS guidance and a checklist, and has a gate (overridable with an audit note). Alpha = controlled testing via single-use evaluation links (validated measures: IPDASi for providers; SURE and Preparation for Decision Making for patients). Beta = open field testing on the live site / subdomain, collecting anonymous validated evaluations. Production = live with weekly monitoring. The generated tool ends with a share-with-provider summary (patient and provider views, print, email), plus the printable one-pager and provider conversation guide.
+
+## Lifecycle (detail)
 
 1. **Intake** - upload PDFs, URLs, or pasted text; content is extracted as trusted source material
 2. **Evidence scan** - AI-built PubMed queries for values, preferences, risks, benefits; abstracts screened and flagged; builder includes or dismisses each one; Reddit communities discovered and approved for monitoring

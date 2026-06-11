@@ -78,7 +78,7 @@ if (!project) { console.log('No project found; create one first.'); process.exit
 
 db.prepare('INSERT OR REPLACE INTO tool_versions (project_id, version, content_json, training_json, note) VALUES (?, ?, ?, ?, ?)')
   .run(project.id, 1, JSON.stringify(content), JSON.stringify(training), 'Sample seed for testing');
-db.prepare("UPDATE projects SET stage = 'live', live_at = CURRENT_TIMESTAMP WHERE id = ?").run(project.id);
+db.prepare("UPDATE projects SET stage = 'production', live_at = CURRENT_TIMESTAMP WHERE id = ?").run(project.id);
 db.prepare("INSERT OR IGNORE INTO review_invites (project_id, token, audience) VALUES (?, 'sampletoken123', 'provider')").run(project.id);
 
 console.log(`Seeded sample version for "${project.title}" (slug: ${project.slug}); review token: sampletoken123`);
