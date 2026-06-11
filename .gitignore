@@ -4,4 +4,6 @@ dist/
 *.db-shm
 *.db-wal
 .env
+server/.env
+.github-token
 server/uploads/
