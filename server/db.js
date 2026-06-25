@@ -213,6 +213,8 @@ addColumn('projects', "repo_published_at DATETIME");
 addColumn('projects', "mod_reasons TEXT");
 addColumn('projects', "mod_note TEXT");
 addColumn('projects', "search_queries TEXT");
+addColumn('projects', "options_json TEXT");
+addColumn('projects', "review_cadence TEXT NOT NULL DEFAULT 'quarterly'");
 addColumn('users', "institution TEXT");
 addColumn('users', "title TEXT");
 

@@ -12,10 +12,12 @@ const jobs = new Map(); // projectId -> {status, error}
 
 router.post('/:id/generate', getProject, (req, res) => {
   const projectId = req.project.id;
+  const feedback = String(req.body?.feedback || '').trim();
+  const stage = req.project.stage;
   if (jobs.get(projectId)?.status === 'running') {
     return res.status(409).json({ error: 'Generation already in progress' });
   }
-  jobs.set(projectId, { status: 'running', step: 'Drafting the decision tool' });
+  jobs.set(projectId, { status: 'running', step: feedback ? 'Revising the decision tool' : 'Drafting the decision tool' });
   res.json({ ok: true, status: 'running' });
 
   setImmediate(async () => {
@@ -28,16 +30,26 @@ router.post('/:id/generate', getProject, (req, res) => {
         .slice(0, 250000);
       const evidence = db.prepare("SELECT * FROM evidence WHERE project_id = ? AND status = 'included'").all(projectId);
       const interview = project.interview_json ? JSON.parse(project.interview_json) : null;
+      const options = project.options_json ? JSON.parse(project.options_json) : [];
 
-      const tool = await generateTool({ decision: project.decision, materialsText, evidence, interview });
+      // For a revision, base it on the current version + the team's feedback.
+      let currentContent = null;
+      if (feedback) {
+        const cur = db.prepare('SELECT content_json FROM tool_versions WHERE project_id = ? ORDER BY version DESC LIMIT 1').get(projectId);
+        if (cur) currentContent = JSON.parse(cur.content_json);
+      }
+
+      const tool = await generateTool({ decision: project.decision, materialsText, evidence, interview, options, feedback, currentContent });
       jobs.set(projectId, { status: 'running', step: 'Writing the training companion' });
       const training = await generateTraining({ decision: project.decision, tool, interview });
 
-      const note = isMock() ? 'Fallback draft (no API key; workflow test only)' : 'AI-generated draft';
+      const note = feedback
+        ? `Revised per feedback: ${feedback.slice(0, 120)}`
+        : (isMock() ? 'Fallback draft (no API key; workflow test only)' : 'AI-generated draft');
       const last = db.prepare('SELECT MAX(version) AS v FROM tool_versions WHERE project_id = ?').get(projectId).v || 0;
       db.prepare('INSERT INTO tool_versions (project_id, version, content_json, training_json, note) VALUES (?, ?, ?, ?, ?)')
         .run(projectId, last + 1, JSON.stringify(tool), JSON.stringify(training), note);
-      logRevision(projectId, 'prototype', 'generated', `Version ${last + 1} generated`, null);
+      logRevision(projectId, stage, feedback ? 'revised' : 'generated', `Version ${last + 1} ${feedback ? 'revised' : 'generated'}`, null);
       jobs.set(projectId, { status: 'done' });
     } catch (err) {
       console.error('Generation failed:', err);

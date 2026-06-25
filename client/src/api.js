@@ -85,7 +85,7 @@ export const api = {
   setSubreddit: (id, sid, approved) => req('PATCH', `/projects/${id}/subreddits/${sid}`, { approved }),
 
   // Generation + versions
-  generate: (id) => req('POST', `/projects/${id}/generate`),
+  generate: (id, feedback) => req('POST', `/projects/${id}/generate`, feedback ? { feedback } : undefined),
   generateStatus: (id) => req('GET', `/projects/${id}/generate/status`),
   getVersions: (id) => req('GET', `/projects/${id}/versions`),
   getLatestVersion: (id) => req('GET', `/projects/${id}/versions/latest`),

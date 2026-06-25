@@ -56,6 +56,7 @@ router.get('/:id', getProject, (req, res) => {
   res.json({
     ...req.project,
     interview: req.project.interview_json ? JSON.parse(req.project.interview_json) : null,
+    options: req.project.options_json ? JSON.parse(req.project.options_json) : [],
     interviewQuestions: INTERVIEW_QUESTIONS,
     stats: projectStats(req.project.id),
     stages: STAGES,
@@ -64,7 +65,15 @@ router.get('/:id', getProject, (req, res) => {
 });
 
 router.put('/:id', getProject, (req, res) => {
-  const { title, decision, provider_target, patient_target, beta_target } = req.body || {};
+  const { title, decision, provider_target, patient_target, beta_target, options, review_cadence } = req.body || {};
+  const cadence = ['monthly', 'quarterly', 'yearly'].includes(review_cadence) ? review_cadence : null;
+  let optionsJson;
+  if (Array.isArray(options)) {
+    const clean = options
+      .map((o) => ({ name: String(o.name || '').trim(), description: String(o.description || '').trim() }))
+      .filter((o) => o.name);
+    optionsJson = JSON.stringify(clean);
+  }
   db.prepare(`
     UPDATE projects SET
       title = COALESCE(?, title),
@@ -72,9 +81,11 @@ router.put('/:id', getProject, (req, res) => {
       provider_target = COALESCE(?, provider_target),
       patient_target = COALESCE(?, patient_target),
       beta_target = COALESCE(?, beta_target),
+      options_json = COALESCE(?, options_json),
+      review_cadence = COALESCE(?, review_cadence),
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(title ?? null, decision ?? null, provider_target ?? null, patient_target ?? null, beta_target ?? null, req.project.id);
+  `).run(title ?? null, decision ?? null, provider_target ?? null, patient_target ?? null, beta_target ?? null, optionsJson ?? null, cadence, req.project.id);
   res.json(db.prepare('SELECT * FROM projects WHERE id = ?').get(req.project.id));
 });
 

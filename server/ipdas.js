@@ -30,7 +30,7 @@ const STAGE_INFO = {
   design: {
     label: 'Design & population',
     short: 'Design',
-    summary: 'Describe the population so the tool is tailored and balanced.',
+    summary: 'Profile your patients and setting, drawing on your clinical experience and the literature you reviewed in the Evidence step, so the tool is tailored and balanced.',
     ipdas: 'IPDAS: options are shown in comparable detail; the aid is tailored to users and uses plain language; values clarification is planned.',
     checklist: [
       'Patient population, values, concerns, barriers, and literacy described.',

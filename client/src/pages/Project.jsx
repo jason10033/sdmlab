@@ -104,6 +104,53 @@ function GatePrompt({ gateInfo, onOverride, onCancel }) {
   );
 }
 
+// Decision statement + the valid choices (options) the tool will compare.
+// Captured explicitly so they are authoritative rather than AI-inferred.
+function DecisionOptionsEditor({ project }) {
+  const [decision, setDecision] = useState(project.decision || '');
+  const [options, setOptions] = useState(() => (project.options?.length ? project.options : [{ name: '', description: '' }]));
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  function setOpt(i, field, val) { setOptions((os) => os.map((o, j) => (j === i ? { ...o, [field]: val } : o))); setSaved(false); }
+  function addOpt() { setOptions((os) => [...os, { name: '', description: '' }]); setSaved(false); }
+  function removeOpt(i) { setOptions((os) => os.filter((_, j) => j !== i)); setSaved(false); }
+
+  async function save() {
+    setBusy(true); setError('');
+    try {
+      const clean = options.filter((o) => o.name.trim());
+      await api.updateProject(project.id, { decision, options: clean });
+      setSaved(true);
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="card">
+      <h3>The decision and the choices</h3>
+      <p className="muted">State the decision precisely, then list the valid choices (options) patients are deciding between, including "not acting now" where appropriate. The generated tool compares exactly these options.</p>
+      {error && <div className="error">{error}</div>}
+      <label>Decision</label>
+      <textarea value={decision} onChange={(e) => { setDecision(e.target.value); setSaved(false); }}
+        placeholder="e.g. Choosing an HIV PrEP option for a patient who wants to prevent HIV." />
+      <label>Valid choices</label>
+      {options.map((o, i) => (
+        <div key={i} className="toolbar" style={{ marginBottom: '.4rem', alignItems: 'flex-start' }}>
+          <input type="text" value={o.name} onChange={(e) => setOpt(i, 'name', e.target.value)} placeholder={`Choice ${i + 1} (e.g. Daily oral pill)`} style={{ flex: '0 0 240px' }} />
+          <input type="text" value={o.description} onChange={(e) => setOpt(i, 'description', e.target.value)} placeholder="Short description (optional)" />
+          <button className="btn btn-sm btn-danger" onClick={() => removeOpt(i)}>Remove</button>
+        </div>
+      ))}
+      <div className="toolbar">
+        <button className="btn btn-sm btn-ghost" onClick={addOpt}>+ Add a choice</button>
+        <div className="spacer" />
+        <button className="btn" disabled={busy} onClick={save}>{busy ? 'Saving...' : saved ? 'Saved' : 'Save decision & choices'}</button>
+      </div>
+    </div>
+  );
+}
+
 // ---------------- Stage 1: Intake ----------------
 function IntakePanel({ project }) {
   const [materials, setMaterials] = useState([]);
@@ -128,26 +175,33 @@ function IntakePanel({ project }) {
 
   return (
     <>
+      <DecisionOptionsEditor project={project} />
+
       <div className="card">
         <h3>Existing materials</h3>
-        <p className="muted">Upload what you already have: prior decision aids, handouts, guidelines (PDF, TXT, MD, JSON), links, or pasted text. SDMLab extracts the content and uses it as trusted source material.</p>
+        <p className="muted">Add as many as you like: prior decision aids, handouts, guidelines (PDF, TXT, MD, JSON), links, or pasted text. Each is stored and extracted separately as trusted source material.</p>
         {error && <div className="error">{error}</div>}
         <div className="row">
           <div>
-            <label>Upload a file</label>
-            <input type="file" ref={fileRef} accept=".pdf,.txt,.md,.json" />
+            <label>Upload file(s)</label>
+            <input type="file" ref={fileRef} accept=".pdf,.txt,.md,.json" multiple />
             <button className="btn btn-sm" style={{ marginTop: '.4rem' }}
-              onClick={() => { const f = fileRef.current.files[0]; if (f) run(() => api.addMaterialFile(project.id, f)); }}>
-              Upload
+              onClick={() => {
+                const files = Array.from(fileRef.current.files || []);
+                if (files.length) run(async () => { for (const f of files) await api.addMaterialFile(project.id, f); fileRef.current.value = ''; });
+              }}>
+              Upload selected
             </button>
+            <p className="hint">You can select several files at once.</p>
           </div>
           <div>
-            <label>Add a web page</label>
+            <label>Add web page(s)</label>
             <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." />
             <button className="btn btn-sm" style={{ marginTop: '.4rem' }}
               onClick={() => url && run(() => api.addMaterialUrl(project.id, url).then(() => setUrl('')))}>
               Add URL
             </button>
+            <p className="hint">Add one, then another. Each link is saved separately.</p>
           </div>
         </div>
         <label>Paste text</label>
@@ -400,8 +454,8 @@ function InterviewPanel({ project, onSaved }) {
   const [saved, setSaved] = useState(false);
   return (
     <div className="card">
-      <h3>Population interview</h3>
-      <p className="muted">Tell SDMLab about the people this tool is for. Your answers shape the language, the values questions, the FAQ, and the training companion.</p>
+      <h3>Practice &amp; population profile</h3>
+      <p className="muted">Describe the people this tool is for and your setting. Draw on your clinical experience <strong>and</strong> what you learned from the literature you reviewed in the Evidence step. Your answers shape the language, the values questions, the FAQ, and the training companion.</p>
       {project.interviewQuestions.map((q) => (
         <div key={q.id}>
           <label>{q.label}</label>
@@ -460,6 +514,8 @@ function DraftPanel({ project, onChange }) {
           {latest && <span className="muted">Current: version {latest.version} ({latest.note}), {new Date(latest.created_at).toLocaleString()}</span>}
         </div>
       </div>
+
+      {latest && <ReviseWithFeedback project={project} onDone={async () => { await load(); onChange(); }} title="Suggest changes for the AI to make" />}
 
       {latest && (
         <div className="card">
@@ -531,6 +587,49 @@ function VersionHistory({ project, latest, onChange }) {
           <ToolView content={viewing.content} />
         </div>
       )}
+    </div>
+  );
+}
+
+// Ask the AI to revise the current tool based on written feedback. Used in the
+// Prototype stage and after Alpha/Beta testing so the SDM can be updated.
+function ReviseWithFeedback({ project, onDone, title = 'Update the tool based on feedback' }) {
+  const [feedback, setFeedback] = useState('');
+  const [status, setStatus] = useState('idle');
+  const [step, setStep] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (status !== 'running') return;
+    const t = setInterval(async () => {
+      try {
+        const s = await api.generateStatus(project.id);
+        if (s.step) setStep(s.step);
+        if (s.status === 'done') { setStatus('idle'); setStep(''); setFeedback(''); clearInterval(t); await onDone(); }
+        if (s.status === 'error') { setStatus('idle'); setStep(''); setError(s.error); clearInterval(t); }
+      } catch { /* transient */ }
+    }, 4000);
+    return () => clearInterval(t);
+  }, [status, project.id, onDone]);
+
+  async function revise() {
+    setError('');
+    try { await api.generate(project.id, feedback); setStatus('running'); }
+    catch (e) { setError(e.message); }
+  }
+
+  return (
+    <div className="card" style={{ borderColor: 'var(--accent)' }}>
+      <h3>{title}</h3>
+      <p className="muted">Describe what you want changed (wording, an option, balance, reading level, anything). The AI revises the current version into a new one; every version is kept, and you can also edit by hand in the Prototype stage.</p>
+      {error && <div className="error">{error}</div>}
+      <textarea value={feedback} onChange={(e) => setFeedback(e.target.value)}
+        placeholder="e.g. Soften the injectable side-effect wording; add cost-by-insurance to the comparison; simplify the daily-pill section to 6th-grade level." />
+      <div style={{ marginTop: '.6rem' }}>
+        <button className="btn" disabled={status === 'running' || !feedback.trim()} onClick={revise}>
+          {status === 'running' ? `${step || 'Revising'}...` : 'Revise with these changes'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -649,6 +748,8 @@ function AlphaPanel({ project }) {
         <h3>Alpha evaluations received ({evals.length})</h3>
         <EvalList evals={evals} />
       </div>
+
+      <ReviseWithFeedback project={project} onDone={load} title="Update the SDM based on alpha feedback" />
     </>
   );
 }
@@ -689,6 +790,8 @@ function BetaPanel({ project }) {
         <h3>Beta evaluations received ({evals.length})</h3>
         <EvalList evals={evals} />
       </div>
+
+      <ReviseWithFeedback project={project} onDone={load} title="Update the SDM based on beta field-testing feedback" />
     </>
   );
 }
@@ -777,24 +880,49 @@ function ProductionPanel({ project }) {
   );
 }
 
-// Maintenance: literature-review sign-off, sets the public "last reviewed" date.
+// Maintenance: review cadence + literature-review sign-off (public "last reviewed").
 function MaintenancePanel({ project, onChange }) {
   const [busy, setBusy] = useState(false);
+  const [cadence, setCadence] = useState(project.review_cadence || 'quarterly');
+
+  const CAD_DAYS = { monthly: 30, quarterly: 91, yearly: 365 };
+  const nextDue = project.last_reviewed_at
+    ? new Date(new Date(project.last_reviewed_at).getTime() + CAD_DAYS[cadence] * 86400000)
+    : null;
+  const overdue = nextDue && nextDue < new Date();
+
+  async function setCad(c) {
+    setCadence(c);
+    await api.updateProject(project.id, { review_cadence: c });
+    await onChange();
+  }
+
   return (
     <div className="card">
       <h3>Ongoing maintenance</h3>
       <p className="muted">
-        Weekly literature and community monitoring continues automatically. When you have reviewed the latest flags,
-        sign off to stamp the tool with today's date so patients and other clinicians can see how current it is.
+        Weekly literature and community monitoring runs automatically. Separately, choose how often you want to formally
+        review and sign off on this tool. When you have reviewed the latest flags, sign off to stamp today's date, shown publicly so others see how current it is.
       </p>
-      <p>Evidence last reviewed: <strong>{project.last_reviewed_at ? new Date(project.last_reviewed_at).toLocaleDateString() : 'not yet signed off'}</strong></p>
-      <button className="btn btn-secondary" disabled={busy} onClick={async () => {
-        setBusy(true);
-        try { await api.signoff(project.id, 'Reviewed surveillance flags and confirmed content is current'); await onChange(); }
-        finally { setBusy(false); }
-      }}>
-        {busy ? 'Signing off...' : 'Sign off: evidence reviewed today'}
-      </button>
+      <label>How often do you want to review this tool?</label>
+      <div className="pill-list">
+        {['monthly', 'quarterly', 'yearly'].map((c) => (
+          <button key={c} type="button" className={`answer-btn ${cadence === c ? 'selected' : ''}`} style={{ padding: '.35rem 1rem' }} onClick={() => setCad(c)}>
+            {c[0].toUpperCase() + c.slice(1)}
+          </button>
+        ))}
+      </div>
+      <p style={{ marginTop: '.8rem' }}>Evidence last reviewed: <strong>{project.last_reviewed_at ? new Date(project.last_reviewed_at).toLocaleDateString() : 'not yet signed off'}</strong></p>
+      {nextDue && <p className={overdue ? 'notice' : 'muted'} style={{ display: 'inline-block' }}>Next review {overdue ? 'was due' : 'due'} {nextDue.toLocaleDateString()}{overdue ? ' (overdue)' : ''}.</p>}
+      <div style={{ marginTop: '.6rem' }}>
+        <button className="btn btn-secondary" disabled={busy} onClick={async () => {
+          setBusy(true);
+          try { await api.signoff(project.id, 'Reviewed surveillance flags and confirmed content is current'); await onChange(); }
+          finally { setBusy(false); }
+        }}>
+          {busy ? 'Signing off...' : 'Sign off: evidence reviewed today'}
+        </button>
+      </div>
     </div>
   );
 }

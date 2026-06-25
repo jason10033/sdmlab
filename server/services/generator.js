@@ -377,8 +377,8 @@ async function pickSubreddits(decision, candidates) {
   });
 }
 
-function mockGenerateTool({ decision, evidence }) {
-  const names = mockOptions(decision);
+function mockGenerateTool({ decision, evidence, options = [] }) {
+  const names = options.length ? options.map((o) => o.name) : mockOptions(decision);
   const citations = [
     { id: 'M1', label: 'Team materials (uploaded intake content)', source: 'material', url: '' },
     ...evidence.map((e) => ({
@@ -389,7 +389,7 @@ function mockGenerateTool({ decision, evidence }) {
     })),
   ];
   const PLACEHOLDER = '[FALLBACK DRAFT - no API key was set, so this is placeholder structure, not generated clinical content. Replace via Edit content or regenerate with a key.]';
-  const options = names.map((name, i) => ({
+  const builtOptions = names.map((name, i) => ({
     id: `opt${i + 1}`,
     name,
     tagline: PLACEHOLDER,
@@ -406,15 +406,15 @@ function mockGenerateTool({ decision, evidence }) {
     title: `${mockTopic(decision)} (fallback draft)`,
     decisionStatement: decision,
     intro: PLACEHOLDER,
-    options,
+    options: builtOptions,
     comparison: [
-      { feature: 'How you take it', values: options.map((o) => ({ optionId: o.id, value: '(fill in)' })) },
-      { feature: 'Visit frequency', values: options.map((o) => ({ optionId: o.id, value: '(fill in)' })) },
+      { feature: 'How you take it', values: builtOptions.map((o) => ({ optionId: o.id, value: '(fill in)' })) },
+      { feature: 'Visit frequency', values: builtOptions.map((o) => ({ optionId: o.id, value: '(fill in)' })) },
     ],
     valuesQuestions: [
       {
         id: 'v1', question: 'What matters most to you in this decision?', helpText: '(fallback question; replace)',
-        answers: options.map((o) => ({ label: `Something that fits: ${o.name}`, favors: [o.id], note: '' })),
+        answers: builtOptions.map((o) => ({ label: `Something that fits: ${o.name}`, favors: [o.id], note: '' })),
       },
     ],
     summaryGuidance: 'This summary is a conversation starter, not a verdict. You and your provider decide together.',
@@ -431,8 +431,14 @@ function mockGenerateTool({ decision, evidence }) {
   };
 }
 
-async function generateTool({ decision, materialsText, evidence, interview }) {
-  if (isMock()) return mockGenerateTool({ decision, evidence });
+async function generateTool({ decision, materialsText, evidence, interview, options = [], feedback = '', currentContent = null }) {
+  if (isMock()) return mockGenerateTool({ decision, evidence, options });
+  const revisionBlock = (feedback && currentContent)
+    ? `\n\n== REVISION REQUEST ==\nA draft already exists (below). Revise it according to the team's feedback. Keep everything the feedback does not ask you to change, stay IPDAS-compliant, and keep every claim cited.\n\nFEEDBACK FROM THE TEAM:\n${feedback}\n\nCURRENT DRAFT (JSON):\n${JSON.stringify(currentContent)}`
+    : '';
+  const optionsBlock = options.length
+    ? `\n\n== THE TEAM HAS DEFINED THESE OPTIONS (valid choices). Build the tool around EXACTLY these, in this order, using these names. Do not add or remove options. ==\n${options.map((o, i) => `${i + 1}. ${o.name}${o.description ? ` - ${o.description}` : ''}`).join('\n')}`
+    : '';
   const evidenceBlock = evidence.length
     ? evidence.map((e) => `[E${e.id}] ${e.title} (${e.journal || 'journal'}, ${e.year || 'n.d.'}) ${e.url}\nTags: ${e.tags || ''}\nSummary: ${e.summary || ''}\nAbstract: ${(e.abstract || '').slice(0, 1200)}`).join('\n\n')
     : '(none provided)';
@@ -442,7 +448,7 @@ async function generateTool({ decision, materialsText, evidence, interview }) {
 
   const prompt = `Build a complete IPDAS-structured shared decision-making tool.
 
-DECISION: ${decision}
+DECISION: ${decision}${optionsBlock}${revisionBlock}
 
 == EXISTING MATERIALS PROVIDED BY THE TEAM (treat as trusted source content; cite as "material") ==
 ${materialsText || '(none provided)'}
